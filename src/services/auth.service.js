@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { authenticator } = require('otplib');
 const User = require('../models/User');
+const PendingSignup = require('../models/PendingSignup');
 const ApiError = require('../utils/ApiError');
 const { env } = require('../config/env');
 const { generateOtp, generateResetToken } = require('../utils/otp.util');
@@ -35,71 +36,82 @@ async function signup({ email, password, securityQuestion, securityAnswer }) {
   const otp = generateOtp();
   const otpCodeHash = await bcrypt.hash(otp, env.bcryptSaltRounds);
 
-  const user = await User.create({
-    email,
-    passwordHash,
-    securityQuestion,
-    securityAnswerHash,
-    otpCodeHash,
-    otpExpiresAt: new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000),
-    otpLastSentAt: new Date(),
-  });
+  // No User row is created here — only a short-lived pending record. The real account is only
+  // persisted once verifyOtp() succeeds, so an abandoned/never-verified signup leaves nothing
+  // behind (Mongo TTL-expires this doc automatically) and the same email can just be retried.
+  await PendingSignup.findOneAndUpdate(
+    { email },
+    {
+      email,
+      passwordHash,
+      securityQuestion,
+      securityAnswerHash,
+      otpCodeHash,
+      otpExpiresAt: new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000),
+      otpLastSentAt: new Date(),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
 
   await sendMail({
-    to: user.email,
+    to: email,
     subject: 'Verify your Accvendor account',
     html: otpEmail(otp, env.otpExpiresMinutes),
   });
 
-  return user;
+  return { email };
 }
 
 async function verifyOtp({ email, otp }) {
-  const user = await User.findOne({ email });
-  if (!user) throw new ApiError(404, 'Account not found');
-  if (user.isVerified) throw new ApiError(400, 'Account is already verified');
-
-  if (!user.otpCodeHash || !user.otpExpiresAt || user.otpExpiresAt < new Date()) {
-    throw new ApiError(400, 'OTP has expired, please request a new one');
+  const pending = await PendingSignup.findOne({ email });
+  if (!pending) {
+    throw new ApiError(404, 'No pending signup found for this email. Please sign up again.');
   }
 
-  const match = await bcrypt.compare(otp, user.otpCodeHash);
+  if (pending.otpExpiresAt < new Date()) {
+    throw new ApiError(400, 'OTP has expired, please sign up again to request a new one');
+  }
+
+  const match = await bcrypt.compare(otp, pending.otpCodeHash);
   if (!match) throw new ApiError(400, 'Invalid OTP');
 
-  user.isVerified = true;
-  user.otpCodeHash = null;
-  user.otpExpiresAt = null;
-  await user.save();
+  const user = await User.create({
+    email: pending.email,
+    passwordHash: pending.passwordHash,
+    securityQuestion: pending.securityQuestion,
+    securityAnswerHash: pending.securityAnswerHash,
+    isVerified: true,
+  });
+  await PendingSignup.deleteOne({ _id: pending._id });
 
   return user;
 }
 
 async function resendOtp({ email }) {
-  const user = await User.findOne({ email });
-  if (!user) throw new ApiError(404, 'Account not found');
-  if (user.isVerified) throw new ApiError(400, 'Account is already verified');
+  const pending = await PendingSignup.findOne({ email });
+  if (!pending) {
+    throw new ApiError(404, 'No pending signup found for this email. Please sign up again.');
+  }
 
-  if (user.otpLastSentAt) {
-    const secondsSinceLast = (Date.now() - user.otpLastSentAt.getTime()) / 1000;
-    if (secondsSinceLast < env.otpResendCooldownSeconds) {
-      const wait = Math.ceil(env.otpResendCooldownSeconds - secondsSinceLast);
-      throw new ApiError(429, `Please wait ${wait}s before requesting another OTP`);
-    }
+  const secondsSinceLast = (Date.now() - pending.otpLastSentAt.getTime()) / 1000;
+  if (secondsSinceLast < env.otpResendCooldownSeconds) {
+    const wait = Math.ceil(env.otpResendCooldownSeconds - secondsSinceLast);
+    throw new ApiError(429, `Please wait ${wait}s before requesting another OTP`);
   }
 
   const otp = generateOtp();
-  user.otpCodeHash = await bcrypt.hash(otp, env.bcryptSaltRounds);
-  user.otpExpiresAt = new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000);
-  user.otpLastSentAt = new Date();
-  await user.save();
+  pending.otpCodeHash = await bcrypt.hash(otp, env.bcryptSaltRounds);
+  pending.otpExpiresAt = new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000);
+  pending.otpLastSentAt = new Date();
+  await pending.save();
 
   await sendMail({
-    to: user.email,
+    to: pending.email,
     subject: 'Your new Accvendor verification code',
     html: otpEmail(otp, env.otpExpiresMinutes),
   });
 
-  return user;
+  return pending;
 }
 
 async function issueTokens(user, { userAgent, ip } = {}) {

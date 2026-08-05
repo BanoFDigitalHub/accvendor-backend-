@@ -30,11 +30,10 @@ const userSchema = new mongoose.Schema(
     // Google Sign-In (optional convenience path)
     googleId: { type: String, default: null, index: true, sparse: true },
 
-    // Email verification via OTP
+    // Email verification — a User row only ever gets created post-verification (see
+    // PendingSignup + auth.service.js#verifyOtp), so this is always true in practice; kept as a
+    // schema-level guarantee that login() can still assert on.
     isVerified: { type: Boolean, default: false },
-    otpCodeHash: { type: String, default: null },
-    otpExpiresAt: { type: Date, default: null },
-    otpLastSentAt: { type: Date, default: null },
 
     // Login lockout
     failedLoginAttempts: { type: Number, default: 0 },
