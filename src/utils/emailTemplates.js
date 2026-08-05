@@ -50,6 +50,15 @@ function passwordResetEmail(link, expiresMinutes) {
   return baseTemplate('Reset your password', body);
 }
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function formatPrice(value) {
   return `Rs ${Number(value).toLocaleString()}`;
 }
@@ -110,13 +119,26 @@ function orderRejectedEmail(order) {
 }
 
 function orderDeliveredEmail(order, downloadUrl) {
-  const body = `
-    <p>Your order <strong>#${String(order._id).slice(-8)}</strong> is ready! Your account credentials are available for download below.</p>
+  const credentialBlock = order.credentialText
+    ? `
+    <p style="font-weight:bold;">Your account details:</p>
+    <pre style="white-space:pre-wrap;word-break:break-word;background:#f3f4f6;border-radius:6px;padding:16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;">${escapeHtml(order.credentialText)}</pre>
+  `
+    : '';
+  const downloadBlock = downloadUrl
+    ? `
     <p style="text-align:center;">
       <a href="${downloadUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;">Download Credentials</a>
     </p>
     <p style="color:#6b7280;font-size:13px;">This link expires shortly for your security — you can always request a fresh one from your dashboard.</p>
+  `
+    : '';
+  const body = `
+    <p>Your order <strong>#${String(order._id).slice(-8)}</strong> is ready!</p>
+    ${credentialBlock}
+    ${downloadBlock}
     ${order.expiresAt ? `<p>Your subscription is active until <strong>${formatDate(order.expiresAt)}</strong>.</p>` : ''}
+    <p style="color:#6b7280;font-size:13px;">You can always find these details again in your Accvendor dashboard.</p>
   `;
   return baseTemplate('Your order is ready', body);
 }

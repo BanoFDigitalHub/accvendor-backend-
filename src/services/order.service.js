@@ -211,18 +211,19 @@ async function rejectOrder(orderId, reason) {
   return order;
 }
 
-async function deliverOrder(orderId, { credentialFileUrl, expiresAt }) {
+async function deliverOrder(orderId, { credentialFileUrl, credentialText, expiresAt }) {
   const order = await Order.findById(orderId);
   if (!order) throw new ApiError(404, 'Order not found');
   if (order.status !== 'approved') {
     throw new ApiError(400, `Cannot deliver an order in "${order.status}" status`);
   }
-  order.credentialFileUrl = credentialFileUrl;
+  order.credentialFileUrl = credentialFileUrl || null;
+  order.credentialText = credentialText || null;
   order.expiresAt = expiresAt || null;
   order.status = 'delivered';
   await order.save();
 
-  const downloadUrl = credentialDownloadUrl(order._id, order.user);
+  const downloadUrl = credentialFileUrl ? credentialDownloadUrl(order._id, order.user) : null;
   await notifyOrder(order, {
     subject: 'Accvendor — your order is ready',
     html: orderDeliveredEmail(order, downloadUrl),

@@ -79,10 +79,16 @@ const listUsersQuerySchema = paginationQuerySchema.extend({
 const rejectOrderSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
-const deliverOrderSchema = z.object({
-  credentialFileUrl: z.string().trim().url().max(2000),
-  expiresAt: z.coerce.date().optional(),
-});
+const deliverOrderSchema = z
+  .object({
+    credentialFileUrl: z.string().trim().url().max(2000).optional(),
+    credentialText: z.string().trim().min(1).max(5000).optional(),
+    expiresAt: z.coerce.date().optional(),
+  })
+  .refine((data) => data.credentialFileUrl || data.credentialText, {
+    message: 'Provide a credential file, credential text, or both',
+    path: ['credentialText'],
+  });
 const listOrdersAdminQuerySchema = paginationQuerySchema.extend({
   status: z
     .enum(['pending_payment', 'proof_submitted', 'under_review', 'approved', 'delivered', 'expired', 'rejected', 'cancelled'])

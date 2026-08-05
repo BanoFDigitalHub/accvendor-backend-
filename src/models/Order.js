@@ -50,6 +50,7 @@ const orderSchema = new mongoose.Schema(
     status: { type: String, enum: ORDER_STATUSES, default: 'pending_payment', index: true },
 
     credentialFileUrl: { type: String, default: null },
+    credentialText: { type: String, default: null },
     expiresAt: { type: Date, default: null, index: true },
     expiryReminderSentAt: { type: Date, default: null },
 
