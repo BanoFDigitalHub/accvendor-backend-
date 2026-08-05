@@ -8,6 +8,8 @@ const settingsSchema = new mongoose.Schema(
     aboutContent: { type: String, default: '', trim: true },
     contactEmail: { type: String, default: '', trim: true },
     contactPhone: { type: String, default: '', trim: true },
+    usdRate: { type: Number, default: 280, min: 0 },
+    eurRate: { type: Number, default: 305, min: 0 },
     socialLinks: {
       facebook: { type: String, default: '' },
       twitter: { type: String, default: '' },

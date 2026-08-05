@@ -123,6 +123,8 @@ const settingsUpdateSchema = z.object({
   aboutContent: z.string().trim().max(5000).optional(),
   contactEmail: z.string().trim().email().or(z.literal('')).optional(),
   contactPhone: z.string().trim().max(50).optional(),
+  usdRate: z.coerce.number().positive().optional(),
+  eurRate: z.coerce.number().positive().optional(),
   socialLinks: z
     .object({
       facebook: z.string().trim().max(300).optional(),
