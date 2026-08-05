@@ -30,7 +30,7 @@ async function addMessage(userId, ticketId, { body, attachmentUrl }) {
   ticket.status = 'open';
   await ticket.save();
 
-  emitToAdmins('ticket:messageAdded', { ticketId: String(ticket._id) });
+  emitToAdmins('ticket:messageAdded', { ticketId: String(ticket._id), subject: ticket.subject });
   return ticket;
 }
 
