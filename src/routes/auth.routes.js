@@ -2,7 +2,7 @@ const express = require('express');
 const controller = require('../controllers/auth.controller');
 const validate = require('../middlewares/validate.middleware');
 const { requireAuth } = require('../middlewares/auth.middleware');
-const { authLimiter } = require('../middlewares/rateLimit.middleware');
+const { authLimiter, otpVerifyLimiter, otpResendLimiter } = require('../middlewares/rateLimit.middleware');
 const {
   signupSchema,
   verifyOtpSchema,
@@ -18,8 +18,8 @@ const {
 const router = express.Router();
 
 router.post('/signup', authLimiter, validate({ body: signupSchema }), controller.signup);
-router.post('/verify-otp', authLimiter, validate({ body: verifyOtpSchema }), controller.verifyOtp);
-router.post('/resend-otp', authLimiter, validate({ body: resendOtpSchema }), controller.resendOtp);
+router.post('/verify-otp', otpVerifyLimiter, validate({ body: verifyOtpSchema }), controller.verifyOtp);
+router.post('/resend-otp', otpResendLimiter, validate({ body: resendOtpSchema }), controller.resendOtp);
 router.post('/login', authLimiter, validate({ body: loginSchema }), controller.login);
 router.post(
   '/login/2fa',
