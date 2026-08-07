@@ -1,54 +1,30 @@
-function baseTemplate(title, bodyHtml) {
-  return `<!DOCTYPE html>
-<html>
-  <body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:24px 0;">
-      <tr>
-        <td align="center">
-          <table width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
-            <tr>
-              <td style="background:#111827;padding:20px 32px;">
-                <span style="color:#ffffff;font-size:20px;font-weight:bold;">Accvendor</span>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:32px;color:#1f2937;font-size:15px;line-height:1.6;">
-                <h2 style="margin-top:0;color:#111827;">${title}</h2>
-                ${bodyHtml}
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:20px 32px;background:#f9fafb;color:#9ca3af;font-size:12px;">
-                &copy; ${new Date().getFullYear()} Accvendor. All rights reserved.
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
-}
+const { env } = require('../config/env');
 
-function otpEmail(otp, expiresMinutes) {
-  const body = `
-    <p>Use the code below to verify your email address. This code expires in <strong>${expiresMinutes} minutes</strong>.</p>
-    <p style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;background:#f3f4f6;padding:16px;border-radius:6px;">${otp}</p>
-    <p>If you didn't request this, you can safely ignore this email.</p>
-  `;
-  return baseTemplate('Verify your email', body);
-}
+const BRAND = {
+  name: 'accvendor.com',
+  tagline: 'Accounts for every need',
+  navy: '#0b1b33',
+  accent: '#036af7',
+  accentDark: '#0355c4',
+  ink: '#132741',
+  muted: '#5a6b80',
+  faint: '#8496ab',
+  line: '#e2e8f0',
+  wash: '#f4f7fb',
+  panel: '#eef4fd',
+  good: '#0f7b52',
+  warn: '#9a5b00',
+  bad: '#b3261e',
+};
 
-function passwordResetEmail(link, expiresMinutes) {
-  const body = `
-    <p>We received a request to reset your password. This link expires in <strong>${expiresMinutes} minutes</strong>.</p>
-    <p style="text-align:center;">
-      <a href="${link}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;">Reset Password</a>
-    </p>
-    <p>If you didn't request this, you can safely ignore this email.</p>
-  `;
-  return baseTemplate('Reset your password', body);
-}
+const SITE_URL = env.clientUrl.replace(/\/$/, '');
+// The logo ships with the client, so emails point at the deployed site's copy.
+const LOGO_URL = `${SITE_URL}/logo.jpeg`;
+
+// Email clients strip <style> unpredictably, so every rule is inline. Kept as short helpers
+// rather than repeated literals so a brand tweak is a one-line change.
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+const MONO = "'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace";
 
 function escapeHtml(str) {
   return String(str)
@@ -60,103 +36,332 @@ function escapeHtml(str) {
 }
 
 function formatPrice(value) {
-  return `Rs ${Number(value).toLocaleString()}`;
+  return `Rs ${Number(value).toLocaleString('en-US')}`;
 }
 
 function formatDate(date) {
   return new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-function orderItemsList(items) {
+function orderRef(order) {
+  return String(order._id).slice(-8).toUpperCase();
+}
+
+function p(text, extra = '') {
+  return `<p style="margin:0 0 14px;color:${BRAND.muted};font-size:15px;line-height:1.65;${extra}">${text}</p>`;
+}
+
+function strong(text) {
+  return `<strong style="color:${BRAND.ink};font-weight:600;">${text}</strong>`;
+}
+
+// Outlook (Word rendering engine) ignores padding on <a>, so the VML roundrect gives it a real
+// button while every other client gets the anchor. Without this the CTA collapses to bare text.
+function button(href, label) {
   return `
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;">
-      ${items
-        .map(
-          (i) => `
-        <tr>
-          <td style="padding:6px 0;border-bottom:1px solid #f3f4f6;">${i.name} &times; ${i.quantity}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f3f4f6;text-align:right;">${formatPrice(i.unitPrice * i.quantity)}</td>
-        </tr>`
-        )
-        .join('')}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px auto;">
+    <tr><td align="center">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
+        href="${href}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="21%" stroke="f" fillcolor="${BRAND.accent}">
+        <w:anchorlock/>
+        <center style="color:#ffffff;font-family:${FONT};font-size:15px;font-weight:600;">${label}</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-- -->
+      <a href="${href}" style="display:inline-block;min-width:200px;padding:14px 32px;background:${BRAND.accent};color:#ffffff;font-family:${FONT};font-size:15px;font-weight:600;line-height:20px;text-align:center;text-decoration:none;border-radius:10px;">${label}</a>
+      <!--<![endif]-->
+    </td></tr>
+  </table>`;
+}
+
+function pill(label, tone = 'accent') {
+  const tones = {
+    accent: { bg: BRAND.panel, fg: BRAND.accentDark },
+    good: { bg: '#e6f4ee', fg: BRAND.good },
+    warn: { bg: '#fdf3e2', fg: BRAND.warn },
+    bad: { bg: '#fdeceb', fg: BRAND.bad },
+  };
+  const { bg, fg } = tones[tone] || tones.accent;
+  return `<span style="display:inline-block;padding:5px 12px;background:${bg};color:${fg};font-size:12px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;border-radius:999px;">${label}</span>`;
+}
+
+// A bordered panel for the things the reader actually came for — the code, the credentials,
+// the order summary — so they survive a skim.
+function panel(innerHtml, extra = '') {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;">
+    <tr><td style="padding:18px 20px;background:${BRAND.wash};border:1px solid ${BRAND.line};border-radius:12px;${extra}">${innerHtml}</td></tr>
+  </table>`;
+}
+
+function baseTemplate(title, bodyHtml, options = {}) {
+  const { preheader = '', footerNote = '', badge = '' } = options;
+  return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>${title}</title>
+    <!--[if mso]>
+    <xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
+    <![endif]-->
+  </head>
+  <body style="margin:0;padding:0;width:100%;background:${BRAND.wash};font-family:${FONT};-webkit-font-smoothing:antialiased;">
+    <div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;color:transparent;">${preheader}</div>
+    <!-- Trailing entities stop Gmail pulling body copy into the inbox preview after the preheader. -->
+    <div style="display:none;max-height:0;overflow:hidden;">${'&#847;&zwnj;&nbsp;'.repeat(30)}</div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.wash};">
+      <tr>
+        <td align="center" style="padding:32px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(11,27,51,0.08);">
+
+            <tr>
+              <td align="center" style="padding:28px 32px;background:${BRAND.navy};">
+                <a href="${SITE_URL}" style="text-decoration:none;">
+                  <img src="${LOGO_URL}" width="72" height="72" alt="${BRAND.name}"
+                    style="display:block;width:72px;height:72px;border:0;border-radius:14px;" />
+                </a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:32px 32px 0;" align="center">
+                ${badge ? `<div style="margin:0 0 14px;">${badge}</div>` : ''}
+                <h1 style="margin:0;color:${BRAND.ink};font-size:23px;line-height:1.35;font-weight:700;letter-spacing:-0.3px;">${title}</h1>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:22px 32px 30px;color:${BRAND.muted};font-size:15px;line-height:1.65;">
+                ${bodyHtml}
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:22px 32px 26px;background:${BRAND.wash};border-top:1px solid ${BRAND.line};text-align:center;">
+                ${footerNote ? `<p style="margin:0 0 14px;color:${BRAND.faint};font-size:13px;line-height:1.6;">${footerNote}</p>` : ''}
+                <p style="margin:0;color:${BRAND.ink};font-size:14px;font-weight:700;">${BRAND.name}</p>
+                <p style="margin:3px 0 0;color:${BRAND.faint};font-size:12px;">${BRAND.tagline}</p>
+                <p style="margin:14px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">
+                  &copy; ${new Date().getFullYear()} ${BRAND.name} &middot; This is an automated message, please don't reply.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
     </table>
+  </body>
+</html>`;
+}
+
+function otpEmail(otp, expiresMinutes) {
+  // Styles sit on the <td> rather than an inner <div>: Outlook renders cell borders far more
+  // reliably, and it keeps the derived plain-text version on one line instead of splitting
+  // every digit onto its own row.
+  const digits = String(otp)
+    .split('')
+    .map(
+      (d) =>
+        `<td width="44" align="center" style="width:44px;height:56px;line-height:56px;background:#ffffff;border:1px solid ${BRAND.line};border-radius:10px;color:${BRAND.ink};font-family:${MONO};font-size:26px;font-weight:700;text-align:center;">${d}</td>`
+    )
+    .join('');
+
+  const body = `
+    ${p('Welcome to Accvendor. Enter the code below to verify your email and finish creating your account.')}
+    ${panel(
+      `<table role="presentation" cellpadding="0" cellspacing="6" border="0" align="center" style="margin:0 auto;border-collapse:separate;"><tr>${digits}</tr></table>
+       <p style="margin:16px 0 0;color:${BRAND.faint};font-size:13px;text-align:center;">Expires in ${expiresMinutes} minutes</p>`,
+      'text-align:center;'
+    )}
+    ${p(`If the boxes don't display, your code is ${strong(otp)}.`, `font-size:13px;`)}
   `;
+  return baseTemplate('Verify your email', body, {
+    preheader: `${otp} is your Accvendor verification code`,
+    badge: pill('Verification'),
+    footerNote: "Didn't try to sign up? You can safely ignore this email — no account was created.",
+  });
+}
+
+function passwordResetEmail(link, expiresMinutes) {
+  const body = `
+    ${p(`We received a request to reset your Accvendor password. Tap the button below to choose a new one — the link works for the next ${strong(`${expiresMinutes} minutes`)}.`)}
+    ${button(link, 'Reset my password')}
+    ${p(
+      `If the button doesn't work, paste this link into your browser:<br /><a href="${link}" style="color:${BRAND.accent};word-break:break-all;">${link}</a>`,
+      `font-size:13px;`
+    )}
+  `;
+  return baseTemplate('Reset your password', body, {
+    preheader: 'Reset your Accvendor password',
+    badge: pill('Security', 'warn'),
+    footerNote: "Didn't request this? Ignore this email — your password stays unchanged.",
+  });
+}
+
+function orderSummary(order) {
+  const rows = order.items
+    .map(
+      (i) => `
+      <tr>
+        <td style="padding:11px 0;border-bottom:1px solid ${BRAND.line};color:${BRAND.ink};font-size:14px;line-height:1.5;">
+          ${escapeHtml(i.name)}
+          <span style="color:${BRAND.faint};">&times; ${i.quantity}</span>
+        </td>
+        <td style="padding:11px 0;border-bottom:1px solid ${BRAND.line};color:${BRAND.ink};font-size:14px;text-align:right;white-space:nowrap;">
+          ${formatPrice(i.unitPrice * i.quantity)}
+        </td>
+      </tr>`
+    )
+    .join('');
+
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;">
+      <tr>
+        <td style="padding:0 0 10px;color:${BRAND.faint};font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;">Order #${orderRef(order)}</td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;border-collapse:collapse;">
+      ${rows}
+      <tr>
+        <td style="padding:14px 0 0;color:${BRAND.ink};font-size:16px;font-weight:700;">Total</td>
+        <td style="padding:14px 0 0;color:${BRAND.ink};font-size:16px;font-weight:700;text-align:right;white-space:nowrap;">${formatPrice(order.total)}</td>
+      </tr>
+    </table>`;
 }
 
 function orderCreatedEmail(order) {
   const body = `
-    <p>Thanks for your order! Here's a summary:</p>
-    ${orderItemsList(order.items)}
-    <p style="font-size:18px;font-weight:bold;">Total: ${formatPrice(order.total)}</p>
-    <p>Please complete payment via <strong>${order.paymentMethod.name}</strong> and upload your payment proof to move your order forward.</p>
+    ${p('Thanks for your order! Here’s what you bought:')}
+    ${orderSummary(order)}
+    ${panel(
+      `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.6;">
+        <strong>Next step:</strong> complete your payment via ${strong(escapeHtml(order.paymentMethod.name))},
+        then upload your payment proof so we can verify it and release your account.
+      </p>`
+    )}
+    ${button(`${SITE_URL}/dashboard`, 'Upload payment proof')}
   `;
-  return baseTemplate('Order received', body);
+  return baseTemplate('Order received', body, {
+    preheader: `Order #${orderRef(order)} — ${formatPrice(order.total)}. Payment proof needed.`,
+    badge: pill('Awaiting payment', 'warn'),
+  });
 }
 
 function proofSubmittedEmail(order) {
   const body = `
-    <p>We've received your payment proof for order <strong>#${String(order._id).slice(-8)}</strong>. Our team is reviewing it now.</p>
-    <p>We'll email you as soon as it's approved.</p>
+    ${p(`We've received your payment proof for order ${strong(`#${orderRef(order)}`)} and our team is reviewing it now.`)}
+    ${p("Reviews are usually done within a few hours. We'll email you the moment it's approved.")}
   `;
-  return baseTemplate('Payment proof received', body);
+  return baseTemplate('Payment proof received', body, {
+    preheader: `We're reviewing your payment for order #${orderRef(order)}`,
+    badge: pill('Under review', 'warn'),
+  });
 }
 
 function orderApprovedEmail(order) {
   const body = `
-    <p>Good news — your payment for order <strong>#${String(order._id).slice(-8)}</strong> has been approved.</p>
-    <p>We're preparing your account details and will send them shortly.</p>
+    ${p(`Good news — your payment for order ${strong(`#${orderRef(order)}`)} has been approved.`)}
+    ${p("We're preparing your account details now and will send them over shortly.")}
   `;
-  return baseTemplate('Payment approved', body);
+  return baseTemplate('Payment approved', body, {
+    preheader: `Payment approved for order #${orderRef(order)}`,
+    badge: pill('Approved', 'good'),
+  });
 }
 
 function orderRejectedEmail(order) {
   const body = `
-    <p>Unfortunately we couldn't verify the payment proof for order <strong>#${String(order._id).slice(-8)}</strong>.</p>
-    ${order.rejectionReason ? `<p><strong>Reason:</strong> ${order.rejectionReason}</p>` : ''}
-    <p>Please contact support or place a new order if you'd like to try again.</p>
+    ${p(`Unfortunately we couldn't verify the payment proof for order ${strong(`#${orderRef(order)}`)}.`)}
+    ${
+      order.rejectionReason
+        ? panel(
+            `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(order.rejectionReason)}</p>`
+          )
+        : ''
+    }
+    ${p('You can open a support ticket if you think this was a mistake, or place a new order to try again.')}
+    ${button(`${SITE_URL}/dashboard/tickets/new`, 'Contact support')}
   `;
-  return baseTemplate('Payment could not be verified', body);
+  return baseTemplate('Payment could not be verified', body, {
+    preheader: `Action needed on order #${orderRef(order)}`,
+    badge: pill('Not verified', 'bad'),
+  });
 }
 
 function orderDeliveredEmail(order, downloadUrl) {
   const credentialBlock = order.credentialText
-    ? `
-    <p style="font-weight:bold;">Your account details:</p>
-    <pre style="white-space:pre-wrap;word-break:break-word;background:#f3f4f6;border-radius:6px;padding:16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;">${escapeHtml(order.credentialText)}</pre>
-  `
+    ? panel(
+        `<p style="margin:0 0 10px;color:${BRAND.faint};font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;">Your account details</p>
+         <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:${MONO};font-size:14px;line-height:1.7;color:${BRAND.ink};">${escapeHtml(order.credentialText)}</pre>`
+      )
     : '';
+
   const downloadBlock = downloadUrl
-    ? `
-    <p style="text-align:center;">
-      <a href="${downloadUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;">Download Credentials</a>
-    </p>
-    <p style="color:#6b7280;font-size:13px;">This link expires shortly for your security — you can always request a fresh one from your dashboard.</p>
-  `
+    ? `${button(downloadUrl, 'Download credentials')}
+       ${p('This download link expires shortly for your security — you can always request a fresh one from your dashboard.', `font-size:13px;text-align:center;`)}`
     : '';
+
   const body = `
-    <p>Your order <strong>#${String(order._id).slice(-8)}</strong> is ready!</p>
+    ${p(`Your order ${strong(`#${orderRef(order)}`)} is ready. Everything you need is below.`)}
     ${credentialBlock}
     ${downloadBlock}
-    ${order.expiresAt ? `<p>Your subscription is active until <strong>${formatDate(order.expiresAt)}</strong>.</p>` : ''}
-    <p style="color:#6b7280;font-size:13px;">You can always find these details again in your Accvendor dashboard.</p>
+    ${order.expiresAt ? p(`Your subscription is active until ${strong(formatDate(order.expiresAt))}.`) : ''}
+    ${p('These details are always available in your Accvendor dashboard.', `font-size:13px;`)}
   `;
-  return baseTemplate('Your order is ready', body);
+  return baseTemplate('Your order is ready', body, {
+    preheader: `Order #${orderRef(order)} delivered — your account details are inside`,
+    badge: pill('Delivered', 'good'),
+  });
+}
+
+function cancelRequestRejectedEmail(order) {
+  const body = `
+    ${p(`We reviewed your cancellation request for order ${strong(`#${orderRef(order)}`)} and weren't able to approve it — your subscription remains active.`)}
+    ${
+      order.cancelRejectionReason
+        ? panel(
+            `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(order.cancelRejectionReason)}</p>`
+          )
+        : ''
+    }
+    ${p('If you have questions, open a support ticket and we’ll take another look.')}
+    ${button(`${SITE_URL}/dashboard/tickets/new`, 'Open a ticket')}
+  `;
+  return baseTemplate('Cancellation request declined', body, {
+    preheader: `Update on your cancellation request for order #${orderRef(order)}`,
+    badge: pill('Declined', 'bad'),
+  });
 }
 
 function orderExpiredEmail(order) {
   const body = `
-    <p>Your subscription from order <strong>#${String(order._id).slice(-8)}</strong> has expired.</p>
-    <p>Visit Accvendor to renew and keep your access active.</p>
+    ${p(`Your subscription from order ${strong(`#${orderRef(order)}`)} has expired and access has now ended.`)}
+    ${p('Renew any time to pick up right where you left off.')}
+    ${button(`${SITE_URL}/products`, 'Renew now')}
   `;
-  return baseTemplate('Subscription expired', body);
+  return baseTemplate('Subscription expired', body, {
+    preheader: `Order #${orderRef(order)} has expired`,
+    badge: pill('Expired', 'bad'),
+  });
 }
 
 function expiryReminderEmail(order, daysLeft) {
   const body = `
-    <p>Your subscription from order <strong>#${String(order._id).slice(-8)}</strong> expires in <strong>${daysLeft} day${daysLeft === 1 ? '' : 's'}</strong> (${formatDate(order.expiresAt)}).</p>
-    <p>Renew now to avoid losing access.</p>
+    ${p(`Your subscription from order ${strong(`#${orderRef(order)}`)} expires in ${strong(`${daysLeft} day${daysLeft === 1 ? '' : 's'}`)} — on ${formatDate(order.expiresAt)}.`)}
+    ${p('Renew before then to avoid any interruption to your access.')}
+    ${button(`${SITE_URL}/products`, 'Renew now')}
   `;
-  return baseTemplate('Your subscription is expiring soon', body);
+  return baseTemplate('Your subscription is expiring soon', body, {
+    preheader: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left on order #${orderRef(order)}`,
+    badge: pill(`${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, 'warn'),
+  });
 }
 
 module.exports = {
@@ -170,4 +375,5 @@ module.exports = {
   orderDeliveredEmail,
   orderExpiredEmail,
   expiryReminderEmail,
+  cancelRequestRejectedEmail,
 };

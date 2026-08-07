@@ -1,0 +1,69 @@
+# Render blueprint. Import this repo as a Blueprint (or create a Web Service pointing at it)
+# and Render will build/start the API with these settings.
+#
+# Every secret below is marked `sync: false`, which means Render prompts for it in the
+# dashboard instead of reading it from this file — no credentials ever live in git.
+services:
+  - type: web
+    name: accvendor-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Where the storefront is hosted. Comma-separate to allow more than one origin.
+      # This is the CORS whitelist — the API refuses anything not listed.
+      - key: CLIENT_URL
+        sync: false
+
+      # MongoDB Atlas connection string. Allow access from anywhere (0.0.0.0/0) in Atlas
+      # Network Access, or add Render's outbound IPs, or the API cannot connect.
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: accvendor
+
+      # Generate long random values (e.g. `openssl rand -hex 48`). Never reuse the dev ones.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CREDENTIAL_URL_SECRET
+        generateValue: true
+
+      # Email. Resend is required here rather than merely preferred: Render blocks outbound
+      # SMTP (ports 25/465/587), so an SMTP transport hangs on this platform. Resend's API is
+      # plain HTTPS on 443. Without a key the app still boots and logs emails to the console.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # SMTP fallback — unused while RESEND_API_KEY is set, and non-functional on Render.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+
+      # Cloudinary (optional — payment-proof/attachment uploads are disabled without it).
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+      # First admin account, created by `npm run seed`.
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
