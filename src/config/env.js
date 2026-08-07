@@ -25,13 +25,24 @@ const env = {
   // and avoids requiring HTTPS. Override with COOKIE_SAMESITE if you host both on one domain.
   cookieSameSite: process.env.COOKIE_SAMESITE || (process.env.NODE_ENV === 'production' ? 'none' : 'lax'),
 
+  // Resend delivers over HTTPS (port 443), which is why it is the preferred transport: many
+  // hosts — Render's free tier among them — block outbound SMTP ports (25/465/587) outright,
+  // so a plain SMTP transport there hangs until it times out. SMTP stays as the fallback for
+  // self-hosted deploys that can reach it.
+  resend: {
+    apiKey: process.env.RESEND_API_KEY,
+  },
+
   smtp: {
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT, 10) || 587,
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
-    from: process.env.EMAIL_FROM || 'Accvendor <no-reply@accvendor.com>',
   },
+
+  // Shared by both transports. Until a domain is verified in Resend, this must stay
+  // onboarding@resend.dev — and Resend will then only deliver to the account owner's address.
+  emailFrom: process.env.EMAIL_FROM || 'Accvendor <onboarding@resend.dev>',
 
   otpExpiresMinutes: parseInt(process.env.OTP_EXPIRES_MINUTES, 10) || 10,
   otpResendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS, 10) || 60,
