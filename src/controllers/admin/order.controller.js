@@ -1,6 +1,7 @@
 const asyncHandler = require('../../utils/asyncHandler');
 const apiResponse = require('../../utils/apiResponse');
 const orderService = require('../../services/order.service');
+const adminEmailService = require('../../services/admin/email.service');
 
 const list = asyncHandler(async (req, res) => {
   const result = await orderService.adminListOrders(req.query);
@@ -44,8 +45,38 @@ const cancelRequests = asyncHandler(async (req, res) => {
 });
 
 const confirmCancel = asyncHandler(async (req, res) => {
-  const order = await orderService.cancelOrder(req.params.id);
+  const order = await orderService.cancelOrder(req.params.id, req.user._id);
   apiResponse(res, 200, 'Order cancelled', { order });
 });
 
-module.exports = { list, detail, markUnderReview, approve, reject, deliver, cancelRequests, confirmCancel };
+const rejectCancel = asyncHandler(async (req, res) => {
+  const order = await orderService.rejectCancelRequest(req.params.id, req.body.reason, req.user._id);
+  apiResponse(res, 200, 'Cancellation request rejected', { order });
+});
+
+// Manual nudge for an order still sitting in pending_payment.
+const paymentReminder = asyncHandler(async (req, res) => {
+  const order = await orderService.sendPaymentReminder(req.params.id);
+  apiResponse(res, 200, 'Payment reminder sent', { order });
+});
+
+// Free-form admin -> customer email, always addressed to the account's registered address
+// (taken from the order, never from the request body).
+const emailCustomer = asyncHandler(async (req, res) => {
+  const result = await adminEmailService.emailOrderCustomer(req.params.id, req.body, req.user);
+  apiResponse(res, 200, 'Email sent', result);
+});
+
+module.exports = {
+  list,
+  detail,
+  markUnderReview,
+  approve,
+  reject,
+  deliver,
+  cancelRequests,
+  confirmCancel,
+  rejectCancel,
+  paymentReminder,
+  emailCustomer,
+};

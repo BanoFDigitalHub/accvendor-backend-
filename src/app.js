@@ -21,8 +21,12 @@ const paymentMethodRoutes = require('./routes/paymentMethod.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const supportTicketRoutes = require('./routes/supportTicket.routes');
 const reviewRoutes = require('./routes/review.routes');
+const reviewToolRoutes = require('./routes/reviewTools.routes');
 const adRoutes = require('./routes/ad.routes');
 const settingsRoutes = require('./routes/settings.routes');
+const newsletterRoutes = require('./routes/newsletter.routes');
+const notificationRoutes = require('./routes/notification.routes');
+const twoFactorToolRoutes = require('./routes/twoFactorTool.routes');
 const adminRoutes = require('./routes/admin');
 
 const app = express();
@@ -35,16 +39,29 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'https://res.cloudinary.com'],
-        scriptSrc: ["'self'"],
-        connectSrc: ["'self'", env.clientUrl],
+        imgSrc: ["'self'", 'data:', 'https://res.cloudinary.com', 'https:'],
+        // Ad network embed codes (Adsterra/AdSense, admin-entered in Ads.jsx) are inline
+        // <script> blocks served from rotating third-party domains that can't be fully
+        // enumerated — 'unsafe-inline' + a broad https: source is the deliberate trade-off
+        // that makes them actually run, requested explicitly over the stricter 'self'-only
+        // default. The `code` field is admin-only input (not public user input), which keeps
+        // the practical XSS blast radius the same as any other admin-trusted config value.
+        scriptSrc: ["'self'", "'unsafe-inline'", 'https:'],
+        frameSrc: ["'self'", 'https:'],
+        connectSrc: ["'self'", env.clientUrl, 'https:'],
       },
     },
   })
 );
 app.use(
   cors({
-    origin: env.clientUrl,
+    // CLIENT_URL may list several origins (comma-separated) so a preview deploy can talk to
+    // the same API. Anything not listed is refused — credentials are involved, so this must
+    // stay an explicit whitelist, never a reflect-any-origin.
+    origin(origin, callback) {
+      if (!origin) return callback(null, true); // same-origin / curl / server-to-server
+      return callback(null, env.clientOrigins.includes(origin));
+    },
     credentials: true,
   })
 );
@@ -72,8 +89,12 @@ app.use('/api/payment-methods', paymentMethodRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/support/tickets', supportTicketRoutes);
 app.use('/api/products/:slug/reviews', reviewRoutes);
+app.use('/api/reviews', reviewToolRoutes);
 app.use('/api/ads', adRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/newsletter', newsletterRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/2fa', twoFactorToolRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.use(notFoundHandler);

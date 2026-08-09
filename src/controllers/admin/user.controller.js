@@ -11,7 +11,7 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const block = asyncHandler(async (req, res) => {
-  const user = await userService.setBlocked(req.params.id, true);
+  const user = await userService.setBlocked(req.params.id, true, req.body.reason);
   apiResponse(res, 200, 'User blocked', { user });
 });
 

@@ -66,6 +66,7 @@ async function run() {
     const passwordHash = await bcrypt.hash('Password123!', env.bcryptSaltRounds);
     const securityAnswerHash = await bcrypt.hash('answer', env.bcryptSaltRounds);
     const buyer = await User.create({
+      name: 'Smoke Test User',
       email: 'notify-buyer@test.com',
       passwordHash,
       securityQuestion: 'What city were you born in?',

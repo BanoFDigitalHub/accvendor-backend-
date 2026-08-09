@@ -8,6 +8,7 @@ function toAdminUser(u) {
     role: u.role,
     isVerified: u.isVerified,
     isBlocked: u.isBlocked,
+    blockReason: u.blockReason,
     createdAt: u.createdAt,
   };
 }
@@ -24,12 +25,13 @@ async function listUsers({ page, limit, search }) {
   return { items: items.map(toAdminUser), total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
 }
 
-async function setBlocked(userId, isBlocked) {
+async function setBlocked(userId, isBlocked, reason) {
   const user = await User.findById(userId);
   if (!user) throw new ApiError(404, 'User not found');
   if (user.role === 'admin') throw new ApiError(400, 'Cannot block an admin account');
 
   user.isBlocked = isBlocked;
+  user.blockReason = isBlocked ? reason : null;
   // Bumping tokenVersion invalidates every outstanding access/refresh token for this user
   // immediately, rather than waiting for the 15m access token to expire naturally.
   user.tokenVersion += 1;

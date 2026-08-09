@@ -6,6 +6,7 @@ const {
   paginationQuerySchema,
   productCreateSchema,
   productUpdateSchema,
+  listProductsAdminQuerySchema,
   categoryCreateSchema,
   categoryUpdateSchema,
   couponCreateSchema,
@@ -17,7 +18,7 @@ const {
 const router = express.Router();
 
 // Products
-router.get('/products', validate({ query: paginationQuerySchema }), controller.listProducts);
+router.get('/products', validate({ query: listProductsAdminQuerySchema }), controller.listProducts);
 router.post('/products', validate({ body: productCreateSchema }), controller.createProduct);
 router.patch('/products/:id', validate({ params: idParamsSchema, body: productUpdateSchema }), controller.updateProduct);
 router.delete('/products/:id', validate({ params: idParamsSchema }), controller.deleteProduct);

@@ -6,7 +6,9 @@ const {
   paginationQuerySchema,
   listOrdersAdminQuerySchema,
   rejectOrderSchema,
+  rejectCancelRequestSchema,
   deliverOrderSchema,
+  manualEmailSchema,
 } = require('../../validators/admin.validator');
 
 const router = express.Router();
@@ -19,5 +21,13 @@ router.post('/:id/approve', validate({ params: idParamsSchema }), controller.app
 router.post('/:id/reject', validate({ params: idParamsSchema, body: rejectOrderSchema }), controller.reject);
 router.post('/:id/deliver', validate({ params: idParamsSchema, body: deliverOrderSchema }), controller.deliver);
 router.post('/:id/confirm-cancel', validate({ params: idParamsSchema }), controller.confirmCancel);
+router.post(
+  '/:id/reject-cancel',
+  validate({ params: idParamsSchema, body: rejectCancelRequestSchema }),
+  controller.rejectCancel
+);
+
+router.post('/:id/payment-reminder', validate({ params: idParamsSchema }), controller.paymentReminder);
+router.post('/:id/email', validate({ params: idParamsSchema, body: manualEmailSchema }), controller.emailCustomer);
 
 module.exports = router;

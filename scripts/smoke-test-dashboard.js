@@ -79,6 +79,7 @@ async function run() {
     const passwordHash = await bcrypt.hash('Password123!', env.bcryptSaltRounds);
     const securityAnswerHash = await bcrypt.hash('answer', env.bcryptSaltRounds);
     const buyer = await User.create({
+      name: 'Smoke Test User',
       email: 'dash-buyer@test.com',
       passwordHash,
       securityQuestion: 'What city were you born in?',
@@ -86,6 +87,7 @@ async function run() {
       isVerified: true,
     });
     const otherUser = await User.create({
+      name: 'Smoke Test User',
       email: 'dash-other@test.com',
       passwordHash,
       securityQuestion: 'What city were you born in?',
@@ -192,7 +194,9 @@ async function run() {
       method: 'POST',
       headers: authHeaders,
     });
-    assert(res.status === 400, 'a second cancellation request on the same order is rejected');
+    // 409 Conflict: the request exists already. Only one cancellation request is ever allowed
+    // per order, and a decided one (approved or rejected) is terminal.
+    assert(res.status === 409, 'a second cancellation request on the same order is rejected');
 
     res = await fetch(`${base}/api/orders/${deliveredOrder._id}/cancel-request`, {
       method: 'POST',

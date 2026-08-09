@@ -58,6 +58,7 @@ async function run() {
     const passwordHash = await bcrypt.hash('Password123!', env.bcryptSaltRounds);
     const securityAnswerHash = await bcrypt.hash('answer', env.bcryptSaltRounds);
     await User.create({
+      name: 'Smoke Test User',
       email: 'admin@test.com',
       passwordHash,
       securityQuestion: 'What city were you born in?',
@@ -66,7 +67,7 @@ async function run() {
       role: 'admin',
     });
 
-    let res = await fetch(`${base}/api/auth/login`, {
+    let res = await fetch(`${base}/api/admin/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin@test.com', password: 'Password123!' }),
@@ -98,15 +99,15 @@ async function run() {
     res = await fetch(`${base}/api/admin/ads`, {
       method: 'POST',
       headers: adminHeaders,
-      body: JSON.stringify({ name: 'Homepage banner', type: 'banner', placement: 'home-top', imageUrl: 'https://placehold.co/728x90', linkUrl: 'https://example.com' }),
+      body: JSON.stringify({ name: 'Homepage banner', type: 'banner', placement: 'top', imageUrl: 'https://placehold.co/728x90', linkUrl: 'https://example.com' }),
     });
     body = await res.json();
     assert(res.status === 201, 'admin creates a banner ad');
     const adId = body.data.ad._id;
 
-    res = await fetch(`${base}/api/ads?placement=home-top`);
+    res = await fetch(`${base}/api/ads?placement=top`);
     body = await res.json();
-    assert(res.status === 200 && body.data.ads.length === 1 && body.data.ads[0]._id === adId, 'public ad list filters by placement');
+    assert(res.status === 200 && body.data.ads.length === 1 && body.data.ads[0].id === adId, 'public ad list filters by placement');
 
     res = await fetch(`${base}/api/ads/${adId}/click`, { method: 'POST' });
     body = await res.json();
@@ -119,7 +120,7 @@ async function run() {
     });
     assert(res.status === 200, 'admin deactivates an ad');
 
-    res = await fetch(`${base}/api/ads?placement=home-top`);
+    res = await fetch(`${base}/api/ads?placement=top`);
     body = await res.json();
     assert(body.data.ads.length === 0, 'deactivated ad no longer appears on the public endpoint');
 
@@ -157,7 +158,7 @@ async function run() {
     assert(res.status === 200 && body.data.enabled === true, '2FA confirm enables it with a valid code');
 
     // Logging in again should now require the 2FA step instead of issuing a session directly.
-    res = await fetch(`${base}/api/auth/login`, {
+    res = await fetch(`${base}/api/admin/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin@test.com', password: 'Password123!' }),
@@ -166,23 +167,23 @@ async function run() {
     assert(res.status === 200 && body.data.requires2FA === true && typeof body.data.pendingToken === 'string', 'login now returns a 2FA challenge instead of a session');
     const pendingToken = body.data.pendingToken;
     const noSessionCookieJar = parseCookies(res);
-    assert(!noSessionCookieJar.accessToken, 'no access token cookie is set before the 2FA step is completed');
+    assert(!noSessionCookieJar.adminAccessToken, 'no access token cookie is set before the 2FA step is completed');
 
-    res = await fetch(`${base}/api/auth/login/2fa`, {
+    res = await fetch(`${base}/api/admin/auth/login/2fa`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pendingToken, code: '000000' }),
     });
     assert(res.status === 401, 'wrong 2FA code at login is rejected');
 
-    res = await fetch(`${base}/api/auth/login/2fa`, {
+    res = await fetch(`${base}/api/admin/auth/login/2fa`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pendingToken, code: authenticator.generate(secret) }),
     });
     body = await res.json();
     const sessionJar = parseCookies(res);
-    assert(res.status === 200 && body.data.email === 'admin@test.com' && sessionJar.accessToken, 'correct 2FA code at login issues a real session');
+    assert(res.status === 200 && body.data.email === 'admin@test.com' && sessionJar.adminAccessToken, 'correct 2FA code at login issues a real session');
 
     const sessionHeaders = { Cookie: cookieHeader(sessionJar), 'Content-Type': 'application/json' };
     res = await fetch(`${base}/api/admin/2fa/disable`, {

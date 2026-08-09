@@ -62,6 +62,7 @@ async function run() {
     const passwordHash = await bcrypt.hash('Password123!', env.bcryptSaltRounds);
     const securityAnswerHash = await bcrypt.hash('answer', env.bcryptSaltRounds);
     const admin = await User.create({
+      name: 'Smoke Test User',
       email: 'admin@test.com',
       passwordHash,
       securityQuestion: 'What city were you born in?',
@@ -70,6 +71,7 @@ async function run() {
       role: 'admin',
     });
     const buyer = await User.create({
+      name: 'Smoke Test User',
       email: 'admin-test-buyer@test.com',
       passwordHash,
       securityQuestion: 'What city were you born in?',
@@ -77,7 +79,7 @@ async function run() {
       isVerified: true,
     });
 
-    let res = await fetch(`${base}/api/auth/login`, {
+    let res = await fetch(`${base}/api/admin/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin@test.com', password: 'Password123!' }),
@@ -95,7 +97,25 @@ async function run() {
 
     // --- role gate ---
     res = await fetch(`${base}/api/admin/dashboard/stats`, { headers: buyerHeaders });
-    assert(res.status === 403, 'non-admin user is rejected from admin routes (403)');
+    assert(res.status === 401, 'a public-site session is rejected from admin routes (401)');
+
+    // Even the admin's own storefront session must not open the admin API.
+    res = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@test.com', password: 'Password123!' }),
+    });
+    const adminOnSiteHeaders = { Cookie: cookieHeader(parseCookies(res)), 'Content-Type': 'application/json' };
+    res = await fetch(`${base}/api/admin/dashboard/stats`, { headers: adminOnSiteHeaders });
+    assert(res.status === 401, "an admin's storefront session is still rejected from admin routes (401)");
+
+    // A non-admin can never mint an admin-scoped session.
+    res = await fetch(`${base}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin-test-buyer@test.com', password: 'Password123!' }),
+    });
+    assert(res.status === 401, 'non-admin account cannot log into the admin panel');
 
     res = await fetch(`${base}/api/admin/dashboard/stats`, { headers: adminHeaders });
     let body = await res.json();
@@ -206,14 +226,22 @@ async function run() {
     body = await res.json();
     assert(res.status === 200 && body.data.users.length === 2, 'admin user list returns both users');
 
-    res = await fetch(`${base}/api/admin/users/${buyer._id}/block`, { method: 'POST', headers: adminHeaders });
+    res = await fetch(`${base}/api/admin/users/${buyer._id}/block`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ reason: 'Smoke test block' }),
+    });
     body = await res.json();
     assert(res.status === 200 && body.data.user.isBlocked === true, "admin blocks the buyer's account");
 
     res = await fetch(`${base}/api/auth/me`, { headers: buyerHeaders });
     assert(res.status === 401 || res.status === 403, "blocked user's existing session is rejected immediately (tokenVersion bump)");
 
-    res = await fetch(`${base}/api/admin/users/${admin._id}/block`, { method: 'POST', headers: adminHeaders });
+    res = await fetch(`${base}/api/admin/users/${admin._id}/block`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ reason: 'Smoke test block' }),
+    });
     assert(res.status === 400, 'cannot block an admin account');
 
     res = await fetch(`${base}/api/admin/users/${buyer._id}/unblock`, { method: 'POST', headers: adminHeaders });

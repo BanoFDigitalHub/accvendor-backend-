@@ -9,4 +9,14 @@ async function listAuditLog({ page, limit }) {
   return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
 }
 
-module.exports = { listAuditLog };
+async function deleteAuditLogs(ids) {
+  const result = await AuditLog.deleteMany({ _id: { $in: ids } });
+  return result.deletedCount;
+}
+
+async function deleteAllAuditLogs() {
+  const result = await AuditLog.deleteMany({});
+  return result.deletedCount;
+}
+
+module.exports = { listAuditLog, deleteAuditLogs, deleteAllAuditLogs };

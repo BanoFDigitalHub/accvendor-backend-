@@ -1,14 +1,15 @@
 {
-  "name": "server",
+  "name": "accvendor-backend",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node src/seed/seed.js",
+    "migrate": "node src/seed/migrate.js",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop ecosystem.config.js",
-    "test": "node scripts/smoke-test-auth.js && node scripts/smoke-test-products.js && node scripts/smoke-test-orders.js && node scripts/smoke-test-notifications.js && node scripts/smoke-test-dashboard.js && node scripts/smoke-test-admin.js && node scripts/smoke-test-phase7.js"
+    "test": "node scripts/smoke-test-auth.js && node scripts/smoke-test-products.js && node scripts/smoke-test-orders.js && node scripts/smoke-test-notifications.js && node scripts/smoke-test-dashboard.js && node scripts/smoke-test-admin.js && node scripts/smoke-test-phase7.js && node scripts/smoke-test-auth-scopes.js"
   },
   "keywords": [],
   "author": "",
@@ -39,5 +40,8 @@
   "devDependencies": {
     "mongodb-memory-server": "^11.2.0",
     "nodemon": "^3.1.14"
+  },
+  "engines": {
+    "node": ">=20 <23"
   }
 }

@@ -10,4 +10,14 @@ const list = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { list };
+const remove = asyncHandler(async (req, res) => {
+  const deletedCount = await auditLogService.deleteAuditLogs(req.body.ids);
+  apiResponse(res, 200, 'Audit log entries deleted', { deletedCount });
+});
+
+const removeAll = asyncHandler(async (req, res) => {
+  const deletedCount = await auditLogService.deleteAllAuditLogs();
+  apiResponse(res, 200, 'Audit log cleared', { deletedCount });
+});
+
+module.exports = { list, remove, removeAll };

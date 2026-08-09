@@ -92,6 +92,7 @@ async function run() {
   const passwordHash = await bcrypt.hash('Password123!', env.bcryptSaltRounds);
   const securityAnswerHash = await bcrypt.hash('answer', env.bcryptSaltRounds);
   await User.create({
+    name: 'Smoke Test User',
     email: 'buyer@test.com',
     passwordHash,
     securityQuestion: 'What city were you born in?',
@@ -124,7 +125,7 @@ async function run() {
     res = await fetch(`${base}/api/cart/items`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ productId: netflix._id.toString(), quantity: 2 }),
+      body: JSON.stringify({ productId: netflix._id.toString(), quantity: 2, currency: 'PKR' }),
     });
     body = await res.json();
     assert(
@@ -132,10 +133,24 @@ async function run() {
       'add item computes subtotal from effectivePrice (450*2=900)'
     );
 
+    // The same cart priced in USD: 450 PKR / 280 = $1.61 a unit. Proves the cart is priced
+    // server-side per currency rather than converted in the browser.
+    res = await fetch(`${base}/api/cart?currency=USD`, { headers: authHeaders });
+    body = await res.json();
+    assert(
+      res.status === 200 && body.data.cart.currency === 'USD' && body.data.cart.subtotal === 3.22,
+      'cart re-prices in USD from the server'
+    );
+    assert(
+      body.data.cart.items[0].prices.PKR.effectivePrice === 450 &&
+        body.data.cart.items[0].prices.USD.effectivePrice === 1.61,
+      'each cart line carries every currency so switching never refetches'
+    );
+
     res = await fetch(`${base}/api/cart/items/${netflix._id}`, {
       method: 'PATCH',
       headers: authHeaders,
-      body: JSON.stringify({ quantity: 1 }),
+      body: JSON.stringify({ quantity: 1, currency: 'PKR' }),
     });
     body = await res.json();
     assert(res.status === 200 && body.data.cart.subtotal === 450, 'update quantity recomputes subtotal');
@@ -143,10 +158,27 @@ async function run() {
     res = await fetch(`${base}/api/coupons/validate`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ code: 'SAVE10' }),
+      body: JSON.stringify({ code: 'SAVE10', currency: 'PKR' }),
     });
     body = await res.json();
-    assert(res.status === 200 && body.data.discount === 45, 'coupon validate computes 10% of 450 = 45');
+    assert(
+      res.status === 200 && body.data.discount === 45 && body.data.currency === 'PKR',
+      'coupon validate computes 10% of 450 = 45 in PKR'
+    );
+
+    // Same coupon, same cart, USD. The percentage applies to the USD-resolved subtotal
+    // (450 PKR / 280 = $1.61), proving the discount follows the order's currency rather
+    // than being a fixed PKR figure the client could mismatch.
+    res = await fetch(`${base}/api/coupons/validate`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ code: 'SAVE10', currency: 'USD' }),
+    });
+    body = await res.json();
+    assert(
+      res.status === 200 && body.data.currency === 'USD' && body.data.subtotal === 1.61 && body.data.discount === 0.16,
+      'coupon validate resolves the same cart in USD'
+    );
 
     res = await fetch(`${base}/api/uploads/sign/payment-proof`, { method: 'POST', headers: authHeaders });
     assert(res.status === 501, 'upload signing returns 501 when Cloudinary is not configured');
@@ -155,11 +187,31 @@ async function run() {
     res = await fetch(`${base}/api/orders`, {
       method: 'POST',
       headers: { ...authHeaders, 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ paymentMethodId: paymentMethod._id.toString(), couponCode: 'SAVE10' }),
+      body: JSON.stringify({
+        paymentMethodId: paymentMethod._id.toString(),
+        couponCode: 'SAVE10',
+        currency: 'PKR',
+      }),
     });
     body = await res.json();
     assert(res.status === 201, 'order creation succeeds');
-    assert(body.data.order.subtotal === 450 && body.data.order.discount === 45 && body.data.order.total === 405, 'order totals correct (subtotal 450, discount 45, total 405)');
+    assert(
+      body.data.order.subtotal === 450 && body.data.order.discount === 45 && body.data.order.total === 405,
+      'order totals correct (subtotal 450, discount 45, total 405)'
+    );
+    assert(
+      body.data.order.currency === 'PKR' && body.data.order.totalPKR === 405,
+      'order snapshots the currency it was placed in, plus a PKR mirror for reporting'
+    );
+    assert(
+      /^AV-[2-9A-HJ-NP-TV-Z]{6}$/.test(body.data.order.orderNumber || ''),
+      'order receives a server-generated AV-XXXXXX order number'
+    );
+    assert(
+      Boolean(body.data.order.paymentDueAt) &&
+        new Date(body.data.order.paymentDueAt).getTime() > Date.now() + 55 * 60 * 1000,
+      'order gets a ~60 minute payment window'
+    );
     assert(body.data.order.status === 'pending_payment', 'new order starts as pending_payment');
     const orderId = body.data.order._id;
 
