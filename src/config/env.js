@@ -11,14 +11,31 @@ const requiredInProd = [
   'TOTP_SHARE_SECRET',
 ];
 
+const rawOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+/**
+ * The one public URL to put in emails and share links.
+ *
+ * CLIENT_URL is a whitelist, so it legitimately contains several origins — often with
+ * localhost among them so a developer can work against the deployed API. Taking the first
+ * entry blindly meant that on a deployment whose CLIENT_URL happened to start with
+ * localhost, every password-reset link, order link and 2FA share URL sent to a real customer
+ * pointed at their own machine. Outside development, skip loopback origins.
+ */
+function publicClientUrl() {
+  const isLoopback = (o) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
+  if ((process.env.NODE_ENV || 'development') === 'development') return rawOrigins[0];
+  return rawOrigins.find((o) => !isLoopback(o)) || rawOrigins[0];
+}
+
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5000,
-  clientUrl: (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim(),
-  clientOrigins: (process.env.CLIENT_URL || 'http://localhost:3000')
-    .split(',')
-    .map((o) => o.trim().replace(/\/$/, ''))
-    .filter(Boolean),
+  clientUrl: publicClientUrl(),
+  clientOrigins: rawOrigins,
   apiUrl: process.env.API_URL || `http://localhost:${parseInt(process.env.PORT, 10) || 5000}/api`,
 
   mongoUri: process.env.MONGODB_URI,
