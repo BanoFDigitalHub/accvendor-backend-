@@ -23,8 +23,8 @@ const submitProof = asyncHandler(async (req, res) => {
 });
 
 const list = asyncHandler(async (req, res) => {
-  const { page, limit } = req.query;
-  const result = await orderService.getMyOrders(req.user._id, { page, limit });
+  const { page, limit, status, search } = req.query;
+  const result = await orderService.getMyOrders(req.user._id, { page, limit, status, search });
   apiResponse(res, 200, 'Orders fetched', {
     orders: result.items,
     pagination: { page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages },
@@ -42,7 +42,7 @@ const getCredentialLink = asyncHandler(async (req, res) => {
 });
 
 const requestCancel = asyncHandler(async (req, res) => {
-  const order = await orderService.requestCancellation(req.user._id, req.params.id);
+  const order = await orderService.requestCancellation(req.user._id, req.params.id, req.body?.reason);
   apiResponse(res, 200, 'Cancellation requested', { order });
 });
 

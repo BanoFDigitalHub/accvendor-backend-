@@ -21,9 +21,12 @@ const paymentMethodRoutes = require('./routes/paymentMethod.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const supportTicketRoutes = require('./routes/supportTicket.routes');
 const reviewRoutes = require('./routes/review.routes');
+const reviewToolRoutes = require('./routes/reviewTools.routes');
 const adRoutes = require('./routes/ad.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const newsletterRoutes = require('./routes/newsletter.routes');
+const notificationRoutes = require('./routes/notification.routes');
+const twoFactorToolRoutes = require('./routes/twoFactorTool.routes');
 const adminRoutes = require('./routes/admin');
 
 const app = express();
@@ -86,9 +89,12 @@ app.use('/api/payment-methods', paymentMethodRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/support/tickets', supportTicketRoutes);
 app.use('/api/products/:slug/reviews', reviewRoutes);
+app.use('/api/reviews', reviewToolRoutes);
 app.use('/api/ads', adRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/newsletter', newsletterRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/2fa', twoFactorToolRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.use(notFoundHandler);

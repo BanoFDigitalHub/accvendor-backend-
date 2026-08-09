@@ -99,15 +99,15 @@ async function run() {
     res = await fetch(`${base}/api/admin/ads`, {
       method: 'POST',
       headers: adminHeaders,
-      body: JSON.stringify({ name: 'Homepage banner', type: 'banner', placement: 'home-top', imageUrl: 'https://placehold.co/728x90', linkUrl: 'https://example.com' }),
+      body: JSON.stringify({ name: 'Homepage banner', type: 'banner', placement: 'top', imageUrl: 'https://placehold.co/728x90', linkUrl: 'https://example.com' }),
     });
     body = await res.json();
     assert(res.status === 201, 'admin creates a banner ad');
     const adId = body.data.ad._id;
 
-    res = await fetch(`${base}/api/ads?placement=home-top`);
+    res = await fetch(`${base}/api/ads?placement=top`);
     body = await res.json();
-    assert(res.status === 200 && body.data.ads.length === 1 && body.data.ads[0]._id === adId, 'public ad list filters by placement');
+    assert(res.status === 200 && body.data.ads.length === 1 && body.data.ads[0].id === adId, 'public ad list filters by placement');
 
     res = await fetch(`${base}/api/ads/${adId}/click`, { method: 'POST' });
     body = await res.json();
@@ -120,7 +120,7 @@ async function run() {
     });
     assert(res.status === 200, 'admin deactivates an ad');
 
-    res = await fetch(`${base}/api/ads?placement=home-top`);
+    res = await fetch(`${base}/api/ads?placement=top`);
     body = await res.json();
     assert(body.data.ads.length === 0, 'deactivated ad no longer appears on the public endpoint');
 

@@ -26,11 +26,69 @@ function normalizeAnswer(answer) {
   return answer.trim().toLowerCase();
 }
 
-async function signup({ name, email, password, securityQuestion, securityAnswer }) {
+/**
+ * Seconds still to wait before `lastSentAt` clears a cooldown, or 0 if it already has.
+ *
+ * Every cooldown in this file is measured against a timestamp stored on the pending-signup
+ * record, never against anything the client reports - so refreshing the page, clearing local
+ * storage or opening a second tab cannot shorten a wait.
+ */
+function cooldownRemaining(lastSentAt, cooldownSeconds) {
+  if (!lastSentAt) return 0;
+  const elapsed = (Date.now() - new Date(lastSentAt).getTime()) / 1000;
+  return Math.max(0, Math.ceil(cooldownSeconds - elapsed));
+}
+
+// 429 with the remaining seconds attached, so the client can show a live countdown rather than
+// guessing. Deliberately a controlled response - never a crash, and never a duplicate send.
+function tooSoonError(retryAfter) {
+  return new ApiError(429, `Please wait ${retryAfter}s before requesting again`, { retryAfter });
+}
+
+/**
+ * Atomically claims the right to send one OTP for `email`, or throws 429.
+ *
+ * Reading the record and then checking its cooldown in JS is not enough: ten submits fired at
+ * once all read "no pending record" before any of them writes, so all ten pass the check and
+ * ten OTP emails go out — along with ten bcrypt hashes, which is the expensive part and a real
+ * denial-of-service lever. The check has to be the write.
+ *
+ * The filter matches only a record whose cooldown has already elapsed. With `upsert`, a record
+ * that exists but is still cooling down matches nothing, so Mongo attempts an insert and the
+ * unique index on `email` rejects it with E11000 — and that duplicate-key error is precisely
+ * the signal that another request already holds the slot. Two simultaneous first-time signups
+ * race the same way: one insert wins, the other gets E11000.
+ *
+ * Returns the claimed record; the caller then fills in the rest of the fields.
+ */
+async function claimOtpSlot(email, cooldownSeconds) {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - cooldownSeconds * 1000);
+
+  try {
+    return await PendingSignup.findOneAndUpdate(
+      { email, $or: [{ otpLastSentAt: null }, { otpLastSentAt: { $lte: cutoff } }] },
+      { $set: { email, otpLastSentAt: now }, $inc: { otpSendCount: 1 } },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
+    );
+  } catch (err) {
+    if (err.code !== 11000) throw err;
+    // Someone else holds the slot — report how long is actually left on their timestamp.
+    const holder = await PendingSignup.findOne({ email }).select('otpLastSentAt').lean();
+    throw tooSoonError(cooldownRemaining(holder?.otpLastSentAt, cooldownSeconds) || cooldownSeconds);
+  }
+}
+
+async function signup({ name, email, password, securityQuestion, securityAnswer }, meta = {}) {
   const existing = await User.findOne({ email });
   if (existing) {
     throw new ApiError(409, 'An account with this email already exists');
   }
+
+  // A repeat signup for an email that already has a pending record *is* a resend, so it obeys
+  // the same cooldown. Claiming the slot atomically — before any hashing — is what makes a
+  // burst of double-clicks collapse into one OTP and one email instead of one per click.
+  await claimOtpSlot(email, env.signupCooldownSeconds);
 
   const passwordHash = await bcrypt.hash(password, env.bcryptSaltRounds);
   const securityAnswerHash = await bcrypt.hash(normalizeAnswer(securityAnswer), env.bcryptSaltRounds);
@@ -41,19 +99,24 @@ async function signup({ name, email, password, securityQuestion, securityAnswer 
   // No User row is created here — only a short-lived pending record. The real account is only
   // persisted once verifyOtp() succeeds, so an abandoned/never-verified signup leaves nothing
   // behind (Mongo TTL-expires this doc automatically) and the same email can just be retried.
-  await PendingSignup.findOneAndUpdate(
+  // The slot (and otpLastSentAt/otpSendCount) was already claimed above — this fills in the
+  // rest of the record for the code we just generated.
+  await PendingSignup.updateOne(
     { email },
     {
-      name,
-      email,
-      passwordHash,
-      securityQuestion,
-      securityAnswerHash,
-      otpCodeHash,
-      otpExpiresAt: new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000),
-      otpLastSentAt: new Date(),
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+      $set: {
+        name,
+        passwordHash,
+        securityQuestion,
+        securityAnswerHash,
+        otpCodeHash,
+        otpExpiresAt: new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000),
+        // A fresh code resets the verification attempt budget and any lock it earned.
+        verifyAttempts: 0,
+        verifyLockedUntil: null,
+        lastIp: meta.ip || null,
+      },
+    }
   );
 
   await sendMail({
@@ -62,7 +125,7 @@ async function signup({ name, email, password, securityQuestion, securityAnswer 
     html: otpEmail(otp, env.otpExpiresMinutes),
   });
 
-  return { email };
+  return { email, cooldownSeconds: env.signupCooldownSeconds, otpExpiresMinutes: env.otpExpiresMinutes };
 }
 
 async function verifyOtp({ email, otp }) {
@@ -71,12 +134,37 @@ async function verifyOtp({ email, otp }) {
     throw new ApiError(404, 'No pending signup found for this email. Please sign up again.');
   }
 
+  // A six-digit code is a 10^6 space, so unlimited guesses would be brute-forceable in
+  // minutes. Past the attempt budget the record locks for a cooling period; the lock lives on
+  // the record, so it survives a refresh, a new tab, or a different IP.
+  if (pending.verifyLockedUntil && pending.verifyLockedUntil > new Date()) {
+    const retryAfter = Math.ceil((pending.verifyLockedUntil.getTime() - Date.now()) / 1000);
+    throw new ApiError(429, `Too many incorrect codes. Try again in ${Math.ceil(retryAfter / 60)} minute(s).`, {
+      retryAfter,
+    });
+  }
+
   if (pending.otpExpiresAt < new Date()) {
-    throw new ApiError(400, 'OTP has expired, please sign up again to request a new one');
+    throw new ApiError(400, 'OTP expired. Request a new OTP.', { expired: true });
   }
 
   const match = await bcrypt.compare(otp, pending.otpCodeHash);
-  if (!match) throw new ApiError(400, 'Invalid OTP');
+  if (!match) {
+    pending.verifyAttempts += 1;
+    const locked = pending.verifyAttempts >= env.otpMaxVerifyAttempts;
+    if (locked) {
+      pending.verifyLockedUntil = new Date(Date.now() + env.otpVerifyLockMinutes * 60 * 1000);
+      pending.verifyAttempts = 0;
+    }
+    await pending.save();
+
+    const left = locked ? 0 : env.otpMaxVerifyAttempts - pending.verifyAttempts;
+    throw new ApiError(
+      400,
+      left > 0 ? `Invalid OTP. ${left} attempt${left === 1 ? '' : 's'} remaining.` : 'Invalid OTP',
+      { attemptsRemaining: left }
+    );
+  }
 
   const user = await User.create({
     name: pending.name,
@@ -92,30 +180,36 @@ async function verifyOtp({ email, otp }) {
 }
 
 async function resendOtp({ email }) {
-  const pending = await PendingSignup.findOne({ email });
-  if (!pending) {
+  const exists = await PendingSignup.exists({ email });
+  if (!exists) {
     throw new ApiError(404, 'No pending signup found for this email. Please sign up again.');
   }
 
-  const secondsSinceLast = (Date.now() - pending.otpLastSentAt.getTime()) / 1000;
-  if (secondsSinceLast < env.otpResendCooldownSeconds) {
-    const wait = Math.ceil(env.otpResendCooldownSeconds - secondsSinceLast);
-    throw new ApiError(429, `Please wait ${wait}s before requesting another OTP`);
-  }
+  // Same atomic claim as signup — a burst of "Resend" clicks must produce one code, not one
+  // per click. Claiming before the bcrypt hash also keeps the expensive work behind the gate.
+  await claimOtpSlot(email, env.otpResendCooldownSeconds);
 
   const otp = generateOtp();
-  pending.otpCodeHash = await bcrypt.hash(otp, env.bcryptSaltRounds);
-  pending.otpExpiresAt = new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000);
-  pending.otpLastSentAt = new Date();
-  await pending.save();
+  await PendingSignup.updateOne(
+    { email },
+    {
+      $set: {
+        otpCodeHash: await bcrypt.hash(otp, env.bcryptSaltRounds),
+        otpExpiresAt: new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000),
+        // Issuing a new code restores the attempt budget - the old code is dead either way.
+        verifyAttempts: 0,
+        verifyLockedUntil: null,
+      },
+    }
+  );
 
   await sendMail({
-    to: pending.email,
+    to: email,
     subject: 'Your new Accvendor verification code',
     html: otpEmail(otp, env.otpExpiresMinutes),
   });
 
-  return pending;
+  return PendingSignup.findOne({ email });
 }
 
 async function issueTokens(user, { userAgent, ip } = {}, scope = SCOPE_SITE) {
@@ -356,6 +450,7 @@ async function applyPasswordReset(user, newPassword) {
 }
 
 module.exports = {
+  cooldownRemaining,
   signup,
   verifyOtp,
   resendOtp,

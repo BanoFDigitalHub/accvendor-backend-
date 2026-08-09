@@ -36,6 +36,61 @@ services:
       - key: CREDENTIAL_URL_SECRET
         generateValue: true
 
+      # Encrypts stored TOTP secrets behind shareable 2FA links. Required in production: the
+      # code's fallback value is published in this repository, so booting without a real one
+      # means anyone holding a copy of the database can decrypt every shared secret. Changing
+      # it invalidates every outstanding share link.
+      - key: TOTP_SHARE_SECRET
+        generateValue: true
+      - key: TOTP_SHARE_EXPIRES_HOURS
+        value: "24"
+
+      # Unpaid orders are held this long, then expired by a sweep that runs every minute.
+      - key: UNPAID_ORDER_WINDOW_MINUTES
+        value: "60"
+      - key: UNPAID_ORDER_CRON_SCHEDULE
+        value: "* * * * *"
+
+      # A ticket the admin has answered auto-closes after this much customer silence.
+      - key: TICKET_AUTO_CLOSE_HOURS
+        value: "48"
+      - key: TICKET_AUTO_CLOSE_CRON_SCHEDULE
+        value: "15 * * * *"
+
+      # Signup/OTP cooldowns, measured against timestamps on the pending-signup record so a
+      # page refresh cannot shorten them.
+      - key: SIGNUP_COOLDOWN_SECONDS
+        value: "5"
+      - key: OTP_RESEND_COOLDOWN_SECONDS
+        value: "5"
+      - key: OTP_MAX_VERIFY_ATTEMPTS
+        value: "5"
+      - key: OTP_VERIFY_LOCK_MINUTES
+        value: "15"
+
+      # Write-side rate-limit buckets for repeatable customer actions, plus a search ceiling.
+      - key: RATE_LIMIT_ORDER_MAX
+        value: "20"
+      - key: RATE_LIMIT_REVIEW_MAX
+        value: "10"
+      - key: RATE_LIMIT_TICKET_MAX
+        value: "15"
+      - key: RATE_LIMIT_SEARCH_MAX
+        value: "120"
+
+      # Absolute, publicly reachable logo URL for transactional emails — a mail client cannot
+      # resolve a relative path, so a local one shows every recipient a broken image.
+      - key: EMAIL_LOGO_URL
+        sync: false
+
+      # Year shown in the email footer; keep it in step with Admin → Settings → Footer.
+      - key: COPYRIGHT_YEAR
+        value: "2024"
+
+      # Community invite shown in the storefront footer and admin sidebar. Optional.
+      - key: DISCORD_URL
+        sync: false
+
       # Email. Resend is required here rather than merely preferred: Render blocks outbound
       # SMTP (ports 25/465/587), so an SMTP transport hangs on this platform. Resend's API is
       # plain HTTPS on 443. Without a key the app still boots and logs emails to the console.

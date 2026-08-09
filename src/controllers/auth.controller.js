@@ -5,15 +5,20 @@ const authService = require('../services/auth.service');
 const ticketService = require('../services/supportTicket.service');
 const { setAuthCookies, clearAuthCookies } = require('../utils/cookie.util');
 const User = require('../models/User');
+const { env } = require('../config/env');
 
 function reqMeta(req) {
   return { userAgent: req.headers['user-agent'], ip: req.ip };
 }
 
 const signup = asyncHandler(async (req, res) => {
-  const user = await authService.signup(req.body);
+  const result = await authService.signup(req.body, reqMeta(req));
+  // cooldownSeconds is echoed back so the client's countdown is driven by the server's own
+  // configured value rather than a number hardcoded in the UI.
   apiResponse(res, 201, 'Account created. Please check your email for the verification code.', {
-    email: user.email,
+    email: result.email,
+    cooldownSeconds: result.cooldownSeconds,
+    otpExpiresMinutes: result.otpExpiresMinutes,
   });
 });
 
@@ -32,7 +37,9 @@ const verifyOtp = asyncHandler(async (req, res) => {
 
 const resendOtp = asyncHandler(async (req, res) => {
   await authService.resendOtp(req.body);
-  apiResponse(res, 200, 'A new verification code has been sent to your email.');
+  apiResponse(res, 200, 'A new verification code has been sent to your email.', {
+    cooldownSeconds: env.otpResendCooldownSeconds,
+  });
 });
 
 const login = asyncHandler(async (req, res) => {

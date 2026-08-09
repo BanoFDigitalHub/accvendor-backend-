@@ -1,24 +1,52 @@
 const mongoose = require('mongoose');
 
+const CURRENCIES = ['PKR', 'USD', 'EUR'];
+const DEFAULT_CURRENCY = 'USD';
+
+// A product image is a Cloudinary asset (url + publicId so we can destroy it on replace/delete)
+// or a plain pasted URL, in which case publicId stays null and nothing is owned remotely.
+const productImageSchema = new mongoose.Schema(
+  {
+    url: { type: String, required: true, trim: true },
+    publicId: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true, lowercase: true, unique: true, index: true },
     description: { type: String, required: true, trim: true },
+    // Legacy: a flat array of URL strings. Kept in sync from `media` by the pre-validate hook
+    // below so every existing reader (product cards, order snapshots, SSG loaders) keeps working
+    // untouched while `media` carries the Cloudinary publicIds the admin UI needs.
     images: { type: [String], default: [] },
+    media: { type: [productImageSchema], default: [] },
     tags: { type: [String], default: [] },
 
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true, index: true },
 
-    price: { type: Number, required: true, min: 0 },
-    salePrice: { type: Number, default: null, min: 0 },
-    // Optional manual overrides so the admin can set an exact USD/EUR price per product instead
-    // of relying on Settings.usdRate/eurRate's flat conversion. Null falls back to that rate.
+    // --- Pricing -------------------------------------------------------------------
+    // Each currency carries its own authoritative, admin-entered amount. Setting one never
+    // overwrites another. `price`/`salePrice` are the PKR pair (field names preserved from the
+    // original schema so existing indexes, sorts and documents keep working unchanged).
+    // A currency left null falls back to the Settings.usdRate/eurRate conversion at read time —
+    // that fallback is a display convenience, never a write: nothing is persisted from it.
+    price: { type: Number, required: true, min: 0 }, // PKR
+    salePrice: { type: Number, default: null, min: 0 }, // PKR
     usdPrice: { type: Number, default: null, min: 0 },
+    usdSalePrice: { type: Number, default: null, min: 0 },
     eurPrice: { type: Number, default: null, min: 0 },
+    eurSalePrice: { type: Number, default: null, min: 0 },
 
-    // Subscription/license validity duration in days (e.g. 30 for a 1-month plan)
+    // Subscription/license validity duration in days (e.g. 30 for a 1-month plan).
+    // Drives order expiry — distinct from the human-readable `validity` label below.
     durationDays: { type: Number, required: true, min: 1 },
+
+    // Free-text commercial terms shown on the product page, e.g. "30 Days" / "12 Months".
+    warranty: { type: String, trim: true, default: '' },
+    validity: { type: String, trim: true, default: '' },
 
     stock: { type: Number, required: true, min: 0, default: 0 },
 
@@ -35,7 +63,23 @@ const productSchema = new mongoose.Schema(
 // this compound index covers that query shape directly.
 productSchema.index({ isActive: 1, category: 1, createdAt: -1 });
 productSchema.index({ isActive: 1, isHotProduct: 1, createdAt: -1 });
-productSchema.index({ name: 'text', description: 'text' });
+productSchema.index({ isActive: 1, price: 1 });
+productSchema.index({ name: 'text', description: 'text', tags: 'text' });
+// Admin catalog search is a case-insensitive prefix/substring match on name, which $text
+// can't do (it only matches whole stemmed words) — this collated index serves that path.
+productSchema.index({ name: 1 }, { collation: { locale: 'en', strength: 2 } });
+
+// Keep the legacy `images` string array as the mirror of `media`. Writers may set either one:
+// if `media` was touched it wins, otherwise a bare `images` write is lifted into `media`.
+// Mongoose 9 document middleware is promise-based — it does not pass a `next` callback — so
+// this returns synchronously rather than calling one.
+productSchema.pre('validate', function syncImages() {
+  if (this.isModified('media')) {
+    this.images = (this.media || []).map((m) => m.url);
+  } else if (this.isModified('images')) {
+    this.media = (this.images || []).map((url) => ({ url, publicId: null }));
+  }
+});
 
 productSchema.virtual('effectivePrice').get(function effectivePrice() {
   return this.salePrice != null ? this.salePrice : this.price;
@@ -49,3 +93,5 @@ productSchema.set('toJSON', { virtuals: true });
 productSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('Product', productSchema);
+module.exports.CURRENCIES = CURRENCIES;
+module.exports.DEFAULT_CURRENCY = DEFAULT_CURRENCY;

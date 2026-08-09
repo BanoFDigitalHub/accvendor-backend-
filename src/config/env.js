@@ -1,4 +1,15 @@
-const requiredInProd = ['MONGODB_URI', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'];
+// CREDENTIAL_URL_SECRET and TOTP_SHARE_SECRET are required rather than warned about, because
+// their fallbacks are values published in this repository. Booting production without them
+// means anyone can forge a signed credential-download URL for any buyer's order, and anyone
+// with a copy of the database can decrypt every shared 2FA secret. A warning in a log nobody
+// reads is not a proportionate response to either.
+const requiredInProd = [
+  'MONGODB_URI',
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET',
+  'CREDENTIAL_URL_SECRET',
+  'TOTP_SHARE_SECRET',
+];
 
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -44,8 +55,19 @@ const env = {
   // onboarding@resend.dev — and Resend will then only deliver to the account owner's address.
   emailFrom: process.env.EMAIL_FROM || 'Accvendor <onboarding@resend.dev>',
 
+  // Public URL of the logo used inside transactional emails. Mail clients cannot resolve a
+  // local filesystem path or a relative URL, so this has to be an absolute, publicly reachable
+  // image or the logo silently renders as a broken image for every recipient.
+  emailLogoUrl: process.env.EMAIL_LOGO_URL || 'https://accvendor.vercel.app/logo.jpeg',
+
   otpExpiresMinutes: parseInt(process.env.OTP_EXPIRES_MINUTES, 10) || 10,
-  otpResendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS, 10) || 60,
+  // Deliberately short (5s): long enough to collapse a burst of double-clicks into one send,
+  // short enough that a customer who genuinely didn't get the mail isn't left waiting. The
+  // per-IP/per-email rate limiters are what stop sustained abuse, not this.
+  otpResendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS, 10) || 5,
+  signupCooldownSeconds: parseInt(process.env.SIGNUP_COOLDOWN_SECONDS, 10) || 5,
+  otpMaxVerifyAttempts: parseInt(process.env.OTP_MAX_VERIFY_ATTEMPTS, 10) || 5,
+  otpVerifyLockMinutes: parseInt(process.env.OTP_VERIFY_LOCK_MINUTES, 10) || 15,
   resetTokenExpiresMinutes: parseInt(process.env.RESET_TOKEN_EXPIRES_MINUTES, 10) || 15,
 
   bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 12,
@@ -63,6 +85,15 @@ const env = {
     authMax: parseInt(process.env.RATE_LIMIT_AUTH_MAX, 10) || 20,
     uploadMax: parseInt(process.env.RATE_LIMIT_UPLOAD_MAX, 10) || 60,
     otpMax: parseInt(process.env.RATE_LIMIT_OTP_MAX, 10) || 10,
+    // Write-side buckets for the repeatable customer actions. Each is generous enough that
+    // normal use never notices, tight enough that a stuck retry loop or a script can't turn
+    // into unbounded database writes.
+    orderMax: parseInt(process.env.RATE_LIMIT_ORDER_MAX, 10) || 20, // per 10 min
+    reviewMax: parseInt(process.env.RATE_LIMIT_REVIEW_MAX, 10) || 10, // per hour
+    ticketMax: parseInt(process.env.RATE_LIMIT_TICKET_MAX, 10) || 15, // per hour
+    // Search is read-only and debounced client-side, so this only exists to bound a
+    // pathological client — it is per minute, not per window.
+    searchMax: parseInt(process.env.RATE_LIMIT_SEARCH_MAX, 10) || 120,
   },
 
   google: {
@@ -82,15 +113,52 @@ const env = {
   expiryReminderDaysBefore: parseInt(process.env.EXPIRY_REMINDER_DAYS_BEFORE, 10) || 3,
   expiryCronSchedule: process.env.EXPIRY_CRON_SCHEDULE || '0 6 * * *',
 
+  // How long an order may sit unpaid before the sweep expires it. Enforced by the cron below
+  // against Order.paymentDueAt — never by a browser timer, which a refresh would reset.
+  unpaidOrderWindowMinutes: parseInt(process.env.UNPAID_ORDER_WINDOW_MINUTES, 10) || 60,
+  // Runs every minute so the 60-minute window is honoured to the minute rather than to the
+  // next daily sweep. The query is index-covered (status + paymentDueAt) and matches nothing
+  // almost every time it runs.
+  unpaidOrderCronSchedule: process.env.UNPAID_ORDER_CRON_SCHEDULE || '* * * * *',
+
+  // A ticket the admin has answered auto-closes after this much customer silence.
+  ticketAutoCloseHours: parseInt(process.env.TICKET_AUTO_CLOSE_HOURS, 10) || 48,
+  ticketAutoCloseCronSchedule: process.env.TICKET_AUTO_CLOSE_CRON_SCHEDULE || '15 * * * *',
+
+  // Encrypts TOTP secrets held for shareable 2FA links (AES-256-GCM, see utils/crypto.util.js).
+  // Changing it makes every existing share link undecryptable, which is the intended kill switch.
+  totpShareSecret: process.env.TOTP_SHARE_SECRET || 'dev_totp_share_secret_change_me',
+  totpShareExpiresHours: parseInt(process.env.TOTP_SHARE_EXPIRES_HOURS, 10) || 24,
+
+  // Surfaced in the storefront footer/support area and the admin sidebar. Blank hides the link.
+  discordUrl: process.env.DISCORD_URL || '',
+  // Shown in the email footer. Kept in step with Settings.footer.copyrightYear (the storefront
+  // footer) so a customer never sees two different years across the site and its emails.
+  copyrightYear: process.env.COPYRIGHT_YEAR || '2024',
+
   seedAdminEmail: process.env.SEED_ADMIN_EMAIL || 'admin@accvendor.com',
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!',
 };
+
+// Secrets that have a working dev default but must not keep it in production. These warn
+// loudly rather than refusing to boot: an existing deploy that hasn't set them yet should
+// come up with the feature degraded, not go dark entirely.
+const warnIfDefaultInProd = [
+  ['EMAIL_LOGO_URL', 'transactional emails fall back to the default logo URL'],
+  ['RESEND_API_KEY', 'email falls back to SMTP, which Render blocks — signup OTPs will not arrive'],
+  ['DISCORD_URL', 'the Discord link is hidden until it is set here or in Admin → Settings'],
+];
 
 function assertProdEnv() {
   if (env.nodeEnv !== 'production') return;
   const missing = requiredInProd.filter((key) => !process.env[key]);
   if (missing.length) {
     throw new Error(`Missing required environment variables in production: ${missing.join(', ')}`);
+  }
+  for (const [key, consequence] of warnIfDefaultInProd) {
+    if (!process.env[key]) {
+      console.warn(`[env] ${key} is not set in production — ${consequence}.`);
+    }
   }
 }
 

@@ -3,8 +3,20 @@ const apiResponse = require('../utils/apiResponse');
 const adService = require('../services/ad.service');
 
 const list = asyncHandler(async (req, res) => {
-  const ads = await adService.listActiveAds(req.query.placement);
+  const { placement, device } = req.query;
+  const ads = await adService.listActiveAds({ placement, device });
   apiResponse(res, 200, 'Ads fetched', { ads });
+});
+
+// Every placement in one response, so a page view costs one ad request rather than one per slot.
+const byPlacement = asyncHandler(async (req, res) => {
+  const placements = await adService.listAdsByPlacement({ device: req.query.device });
+  apiResponse(res, 200, 'Ads fetched', { placements });
+});
+
+const impressions = asyncHandler(async (req, res) => {
+  const counted = await adService.registerImpressions(req.body.ids);
+  apiResponse(res, 200, 'Impressions recorded', { counted });
 });
 
 const click = asyncHandler(async (req, res) => {
@@ -12,4 +24,4 @@ const click = asyncHandler(async (req, res) => {
   apiResponse(res, 200, 'Click registered', { linkUrl: ad.linkUrl });
 });
 
-module.exports = { list, click };
+module.exports = { list, byPlacement, impressions, click };

@@ -14,7 +14,9 @@ function parseCookie(cookieHeader, name) {
 
 function initSocket(httpServer) {
   io = new Server(httpServer, {
-    cors: { origin: env.clientUrl, credentials: true },
+    // Same whitelist as the REST CORS layer: the storefront and the admin panel are deployed
+    // on separate domains, so both origins must be allowed here or the admin bell never connects.
+    cors: { origin: env.clientOrigins, credentials: true },
   });
 
   io.use(async (socket, next) => {

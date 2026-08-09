@@ -13,6 +13,8 @@ const adRoutes = require('./ad.routes');
 const settingsRoutes = require('./settings.routes');
 const auditLogRoutes = require('./auditLog.routes');
 const twoFactorRoutes = require('./twoFactor.routes');
+const uploadRoutes = require('./upload.routes');
+const notificationRoutes = require('./notification.routes');
 
 const router = express.Router();
 
@@ -34,5 +36,7 @@ router.use('/ads', adRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/audit-log', auditLogRoutes);
 router.use('/2fa', twoFactorRoutes);
+router.use('/uploads', uploadRoutes);
+router.use('/notifications', notificationRoutes);
 
 module.exports = router;

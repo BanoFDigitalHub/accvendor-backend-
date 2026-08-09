@@ -194,7 +194,9 @@ async function run() {
       method: 'POST',
       headers: authHeaders,
     });
-    assert(res.status === 400, 'a second cancellation request on the same order is rejected');
+    // 409 Conflict: the request exists already. Only one cancellation request is ever allowed
+    // per order, and a decided one (approved or rejected) is terminal.
+    assert(res.status === 409, 'a second cancellation request on the same order is rejected');
 
     res = await fetch(`${base}/api/orders/${deliveredOrder._id}/cancel-request`, {
       method: 'POST',

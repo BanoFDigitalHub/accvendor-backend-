@@ -1,4 +1,5 @@
 const { env } = require('../config/env');
+const { formatMoney } = require('./money');
 
 const BRAND = {
   name: 'accvendor.com',
@@ -18,8 +19,10 @@ const BRAND = {
 };
 
 const SITE_URL = env.clientUrl.replace(/\/$/, '');
-// The logo ships with the client, so emails point at the deployed site's copy.
-const LOGO_URL = `${SITE_URL}/logo.jpeg`;
+// Must be an absolute, publicly reachable https URL: a mail client cannot resolve a local
+// filesystem path or a relative URL, and a broken logo is what every recipient would see.
+// Defaults to the deployed storefront's copy; override with EMAIL_LOGO_URL.
+const LOGO_URL = env.emailLogoUrl || `${SITE_URL}/logo.jpeg`;
 
 // Email clients strip <style> unpredictably, so every rule is inline. Kept as short helpers
 // rather than repeated literals so a brand tweak is a one-line change.
@@ -35,16 +38,20 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-function formatPrice(value) {
-  return `Rs ${Number(value).toLocaleString('en-US')}`;
+// Every order carries the currency it was placed in, so a receipt always renders the amount
+// the buyer actually agreed to — never today's converted equivalent.
+function formatPrice(value, currency = 'PKR') {
+  return formatMoney(value, currency);
 }
 
 function formatDate(date) {
   return new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+// The customer-facing reference. Falls back to a slice of the id only for pre-migration
+// records that never received a number.
 function orderRef(order) {
-  return String(order._id).slice(-8).toUpperCase();
+  return order.orderNumber || String(order._id).slice(-8).toUpperCase();
 }
 
 function p(text, extra = '') {
@@ -81,6 +88,7 @@ function pill(label, tone = 'accent') {
     good: { bg: '#e6f4ee', fg: BRAND.good },
     warn: { bg: '#fdf3e2', fg: BRAND.warn },
     bad: { bg: '#fdeceb', fg: BRAND.bad },
+    muted: { bg: BRAND.wash, fg: BRAND.faint },
   };
   const { bg, fg } = tones[tone] || tones.accent;
   return `<span style="display:inline-block;padding:5px 12px;background:${bg};color:${fg};font-size:12px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;border-radius:999px;">${label}</span>`;
@@ -148,7 +156,7 @@ function baseTemplate(title, bodyHtml, options = {}) {
                 <p style="margin:0;color:${BRAND.ink};font-size:14px;font-weight:700;">${BRAND.name}</p>
                 <p style="margin:3px 0 0;color:${BRAND.faint};font-size:12px;">${BRAND.tagline}</p>
                 <p style="margin:14px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">
-                  &copy; ${new Date().getFullYear()} ${BRAND.name} &middot; This is an automated message, please don't reply.
+                  &copy; ${env.copyrightYear} ${BRAND.name} &middot; This is an automated message, please don't reply.
                 </p>
               </td>
             </tr>
@@ -215,7 +223,7 @@ function orderSummary(order) {
           <span style="color:${BRAND.faint};">&times; ${i.quantity}</span>
         </td>
         <td style="padding:11px 0;border-bottom:1px solid ${BRAND.line};color:${BRAND.ink};font-size:14px;text-align:right;white-space:nowrap;">
-          ${formatPrice(i.unitPrice * i.quantity)}
+          ${formatPrice(i.unitPrice * i.quantity, order.currency)}
         </td>
       </tr>`
     )
@@ -224,14 +232,14 @@ function orderSummary(order) {
   return `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;">
       <tr>
-        <td style="padding:0 0 10px;color:${BRAND.faint};font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;">Order #${orderRef(order)}</td>
+        <td style="padding:0 0 10px;color:${BRAND.faint};font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;">Order ${orderRef(order)}</td>
       </tr>
     </table>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;border-collapse:collapse;">
       ${rows}
       <tr>
         <td style="padding:14px 0 0;color:${BRAND.ink};font-size:16px;font-weight:700;">Total</td>
-        <td style="padding:14px 0 0;color:${BRAND.ink};font-size:16px;font-weight:700;text-align:right;white-space:nowrap;">${formatPrice(order.total)}</td>
+        <td style="padding:14px 0 0;color:${BRAND.ink};font-size:16px;font-weight:700;text-align:right;white-space:nowrap;">${formatPrice(order.total, order.currency)}</td>
       </tr>
     </table>`;
 }
@@ -249,36 +257,37 @@ function orderCreatedEmail(order) {
     ${button(`${SITE_URL}/dashboard`, 'Upload payment proof')}
   `;
   return baseTemplate('Order received', body, {
-    preheader: `Order #${orderRef(order)} — ${formatPrice(order.total)}. Payment proof needed.`,
+    preheader: `Order ${orderRef(order)} — ${formatPrice(order.total, order.currency)}. Payment proof needed.`,
     badge: pill('Awaiting payment', 'warn'),
   });
 }
 
 function proofSubmittedEmail(order) {
   const body = `
-    ${p(`We've received your payment proof for order ${strong(`#${orderRef(order)}`)} and our team is reviewing it now.`)}
+    ${p(`We've received your payment proof for order ${strong(`${orderRef(order)}`)} and our team is reviewing it now.`)}
     ${p("Reviews are usually done within a few hours. We'll email you the moment it's approved.")}
   `;
   return baseTemplate('Payment proof received', body, {
-    preheader: `We're reviewing your payment for order #${orderRef(order)}`,
+    preheader: `We're reviewing your payment for order ${orderRef(order)}`,
     badge: pill('Under review', 'warn'),
   });
 }
 
 function orderApprovedEmail(order) {
   const body = `
-    ${p(`Good news — your payment for order ${strong(`#${orderRef(order)}`)} has been approved.`)}
+    ${p(`Good news — your payment for order ${strong(`${orderRef(order)}`)} has been approved.`)}
     ${p("We're preparing your account details now and will send them over shortly.")}
+    ${loginButton('View your order')}
   `;
   return baseTemplate('Payment approved', body, {
-    preheader: `Payment approved for order #${orderRef(order)}`,
+    preheader: `Payment approved for order ${orderRef(order)}`,
     badge: pill('Approved', 'good'),
   });
 }
 
 function orderRejectedEmail(order) {
   const body = `
-    ${p(`Unfortunately we couldn't verify the payment proof for order ${strong(`#${orderRef(order)}`)}.`)}
+    ${p(`Unfortunately we couldn't verify the payment proof for order ${strong(`${orderRef(order)}`)}.`)}
     ${
       order.rejectionReason
         ? panel(
@@ -290,7 +299,7 @@ function orderRejectedEmail(order) {
     ${button(`${SITE_URL}/dashboard/tickets/new`, 'Contact support')}
   `;
   return baseTemplate('Payment could not be verified', body, {
-    preheader: `Action needed on order #${orderRef(order)}`,
+    preheader: `Action needed on order ${orderRef(order)}`,
     badge: pill('Not verified', 'bad'),
   });
 }
@@ -303,27 +312,29 @@ function orderDeliveredEmail(order, downloadUrl) {
       )
     : '';
 
+  // A text-only delivery has no download link, so it would otherwise have no call to action
+  // at all — fall back to the dashboard, which always holds the credentials.
   const downloadBlock = downloadUrl
     ? `${button(downloadUrl, 'Download credentials')}
        ${p('This download link expires shortly for your security — you can always request a fresh one from your dashboard.', `font-size:13px;text-align:center;`)}`
-    : '';
+    : loginButton('View in your dashboard');
 
   const body = `
-    ${p(`Your order ${strong(`#${orderRef(order)}`)} is ready. Everything you need is below.`)}
+    ${p(`Your order ${strong(`${orderRef(order)}`)} is ready. Everything you need is below.`)}
     ${credentialBlock}
     ${downloadBlock}
     ${order.expiresAt ? p(`Your subscription is active until ${strong(formatDate(order.expiresAt))}.`) : ''}
     ${p('These details are always available in your Accvendor dashboard.', `font-size:13px;`)}
   `;
   return baseTemplate('Your order is ready', body, {
-    preheader: `Order #${orderRef(order)} delivered — your account details are inside`,
+    preheader: `Order ${orderRef(order)} delivered — your account details are inside`,
     badge: pill('Delivered', 'good'),
   });
 }
 
 function cancelRequestRejectedEmail(order) {
   const body = `
-    ${p(`We reviewed your cancellation request for order ${strong(`#${orderRef(order)}`)} and weren't able to approve it — your subscription remains active.`)}
+    ${p(`We reviewed your cancellation request for order ${strong(`${orderRef(order)}`)} and weren't able to approve it — your subscription remains active.`)}
     ${
       order.cancelRejectionReason
         ? panel(
@@ -335,32 +346,136 @@ function cancelRequestRejectedEmail(order) {
     ${button(`${SITE_URL}/dashboard/tickets/new`, 'Open a ticket')}
   `;
   return baseTemplate('Cancellation request declined', body, {
-    preheader: `Update on your cancellation request for order #${orderRef(order)}`,
+    preheader: `Update on your cancellation request for order ${orderRef(order)}`,
     badge: pill('Declined', 'bad'),
   });
 }
 
 function orderExpiredEmail(order) {
   const body = `
-    ${p(`Your subscription from order ${strong(`#${orderRef(order)}`)} has expired and access has now ended.`)}
+    ${p(`Your subscription from order ${strong(`${orderRef(order)}`)} has expired and access has now ended.`)}
     ${p('Renew any time to pick up right where you left off.')}
     ${button(`${SITE_URL}/products`, 'Renew now')}
   `;
   return baseTemplate('Subscription expired', body, {
-    preheader: `Order #${orderRef(order)} has expired`,
+    preheader: `Order ${orderRef(order)} has expired`,
     badge: pill('Expired', 'bad'),
   });
 }
 
 function expiryReminderEmail(order, daysLeft) {
   const body = `
-    ${p(`Your subscription from order ${strong(`#${orderRef(order)}`)} expires in ${strong(`${daysLeft} day${daysLeft === 1 ? '' : 's'}`)} — on ${formatDate(order.expiresAt)}.`)}
+    ${p(`Your subscription from order ${strong(`${orderRef(order)}`)} expires in ${strong(`${daysLeft} day${daysLeft === 1 ? '' : 's'}`)} — on ${formatDate(order.expiresAt)}.`)}
     ${p('Renew before then to avoid any interruption to your access.')}
     ${button(`${SITE_URL}/products`, 'Renew now')}
   `;
   return baseTemplate('Your subscription is expiring soon', body, {
-    preheader: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left on order #${orderRef(order)}`,
+    preheader: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left on order ${orderRef(order)}`,
     badge: pill(`${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, 'warn'),
+  });
+}
+
+// --- Shared CTA ---------------------------------------------------------------------------
+// "Login to Your Account" points at the plain dashboard route and carries no token or
+// credential of any kind: if the browser already holds a valid session the app routes straight
+// through, and if it doesn't the normal login screen appears. Putting a magic token in an
+// email body URL would make the message itself a bearer credential, which it must never be.
+function loginButton(label = 'Login to Your Account', path = '/dashboard') {
+  return button(`${SITE_URL}${path}`, label);
+}
+
+function paymentReminderEmail(order) {
+  const minutesLeft = order.paymentDueAt
+    ? Math.max(0, Math.ceil((new Date(order.paymentDueAt).getTime() - Date.now()) / 60000))
+    : null;
+
+  const body = `
+    ${p(`We haven't received payment for order ${strong(orderRef(order))} yet.`)}
+    ${orderSummary(order)}
+    ${panel(
+      `<p style="margin:0 0 8px;color:${BRAND.ink};font-size:14px;line-height:1.6;">
+        <strong>Amount due:</strong> ${formatPrice(order.total, order.currency)}<br />
+        <strong>Payment status:</strong> Unpaid<br />
+        <strong>Pay with:</strong> ${escapeHtml(order.paymentMethod.name)} &middot; ${escapeHtml(order.paymentMethod.accountNumber)}
+        ${minutesLeft !== null ? `<br /><strong>Deadline:</strong> ${minutesLeft} minute${minutesLeft === 1 ? '' : 's'} from now` : ''}
+      </p>`
+    )}
+    ${p('Once you have paid, upload your payment proof and we will verify it right away.')}
+    ${button(`${SITE_URL}/dashboard`, 'Complete payment')}
+  `;
+  return baseTemplate('Payment reminder', body, {
+    preheader: `${orderRef(order)} is still unpaid — ${formatPrice(order.total, order.currency)} due`,
+    badge: pill('Unpaid', 'warn'),
+  });
+}
+
+function unpaidOrderExpiredEmail(order) {
+  const body = `
+    ${p(`Order ${strong(orderRef(order))} expired because payment wasn't completed in time, so we've released the items back into stock.`)}
+    ${orderSummary(order)}
+    ${p('Nothing was charged. If you still want these items, you can place the order again in a couple of clicks.')}
+    ${button(`${SITE_URL}/dashboard?reorder=${encodeURIComponent(orderRef(order))}`, 'Order again')}
+  `;
+  return baseTemplate('Order expired', body, {
+    preheader: `${orderRef(order)} expired — payment was not completed`,
+    badge: pill('Expired', 'bad'),
+    footerNote: 'You were not charged for this order.',
+  });
+}
+
+function orderCancelledEmail(order) {
+  const body = `
+    ${p(`Your cancellation request for order ${strong(orderRef(order))} has been approved and the order is now cancelled.`)}
+    ${orderSummary(order)}
+    ${p('If you were expecting a refund, our support team will follow up separately with the details.')}
+    ${loginButton('View your orders')}
+  `;
+  return baseTemplate('Order cancelled', body, {
+    preheader: `${orderRef(order)} has been cancelled`,
+    badge: pill('Cancelled', 'bad'),
+  });
+}
+
+function ticketAutoClosedEmail(ticket, hours) {
+  const body = `
+    ${p(`Your support ticket ${strong(escapeHtml(ticket.subject))} was closed automatically because we didn't hear back from you for ${hours} hours after our last reply.`)}
+    ${p('This is routine housekeeping, not a dismissal — if the issue is still open, just reply on the ticket or start a new one and we will pick it straight back up.')}
+    ${button(`${SITE_URL}/dashboard/tickets/${ticket._id}`, 'Reopen the conversation')}
+  `;
+  return baseTemplate('Support ticket closed', body, {
+    preheader: `"${escapeHtml(ticket.subject)}" was closed after ${hours} hours of inactivity`,
+    badge: pill('Closed', 'muted'),
+    footerNote: 'Closed tickets stay in your dashboard — nothing has been deleted.',
+  });
+}
+
+// Free-form admin -> customer message. Both the subject and the body are admin-authored, so
+// both go through escapeHtml; newlines become <br /> so the message keeps the shape it was
+// typed in without any markup being interpreted.
+function adminMessageEmail({ subject, message, recipientName, orderNumber }) {
+  const safeMessage = escapeHtml(message).replace(/\r?\n/g, '<br />');
+  const body = `
+    ${p(`Hi ${escapeHtml(recipientName || 'there')},`)}
+    ${panel(
+      `<p style="margin:0;color:${BRAND.ink};font-size:15px;line-height:1.7;">${safeMessage}</p>`
+    )}
+    ${orderNumber ? p(`This message relates to order ${strong(escapeHtml(orderNumber))}.`) : ''}
+    ${loginButton()}
+  `;
+  return baseTemplate(escapeHtml(subject), body, {
+    preheader: message.slice(0, 120),
+    badge: pill('Message from support'),
+  });
+}
+
+function newsletterWelcomeEmail() {
+  const body = `
+    ${p("You're subscribed. We'll send you new account drops, restocks and the occasional discount — nothing else.")}
+    ${button(`${SITE_URL}/products`, 'Browse accounts')}
+  `;
+  return baseTemplate('Welcome to Accvendor', body, {
+    preheader: "You're subscribed to Accvendor updates",
+    footerNote: 'You can unsubscribe from any newsletter email.',
   });
 }
 
@@ -376,4 +491,11 @@ module.exports = {
   orderExpiredEmail,
   expiryReminderEmail,
   cancelRequestRejectedEmail,
+  paymentReminderEmail,
+  unpaidOrderExpiredEmail,
+  orderCancelledEmail,
+  ticketAutoClosedEmail,
+  adminMessageEmail,
+  newsletterWelcomeEmail,
+  loginButton,
 };

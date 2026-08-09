@@ -8,6 +8,7 @@ const {
   rejectOrderSchema,
   rejectCancelRequestSchema,
   deliverOrderSchema,
+  manualEmailSchema,
 } = require('../../validators/admin.validator');
 
 const router = express.Router();
@@ -25,5 +26,8 @@ router.post(
   validate({ params: idParamsSchema, body: rejectCancelRequestSchema }),
   controller.rejectCancel
 );
+
+router.post('/:id/payment-reminder', validate({ params: idParamsSchema }), controller.paymentReminder);
+router.post('/:id/email', validate({ params: idParamsSchema, body: manualEmailSchema }), controller.emailCustomer);
 
 module.exports = router;

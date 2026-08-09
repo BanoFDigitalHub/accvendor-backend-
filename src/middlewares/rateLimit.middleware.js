@@ -1,4 +1,5 @@
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 const ApiError = require('../utils/ApiError');
 const { env } = require('../config/env');
 
@@ -87,6 +88,68 @@ const emailCheckLimiter = rateLimit({
   skip,
 });
 
+// --- Write-side buckets for repeatable customer actions ------------------------------------
+// Frontend button-disabling and idempotency keys stop the honest double-click; these stop a
+// stuck retry loop or a script from turning repeated clicks into unbounded database writes.
+// Keyed per authenticated user where there is a session, so one abusive account cannot
+// exhaust the budget for everyone behind the same NAT/proxy IP.
+// Anonymous callers fall back to their IP, normalised through express-rate-limit's own helper:
+// a raw `req.ip` would give every address in an IPv6 /64 its own bucket, so one client could
+// walk through addresses and bypass the limit entirely.
+const perUserKey = (req) => (req.user ? `u:${req.user._id}` : ipKeyGenerator(req.ip));
+
+const orderLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: env.rateLimit.orderMax,
+  keyGenerator: perUserKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  skip,
+});
+
+const reviewLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: env.rateLimit.reviewMax,
+  keyGenerator: perUserKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  skip,
+});
+
+const ticketLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: env.rateLimit.ticketMax,
+  keyGenerator: perUserKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  skip,
+});
+
+// Read-only and already debounced client-side; this is a ceiling on a pathological client,
+// not a throttle real typing should ever feel. Per minute rather than per window.
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: env.rateLimit.searchMax,
+  keyGenerator: perUserKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  skip,
+});
+
+// Public, unauthenticated write (newsletter subscribe, 2FA share creation).
+const publicWriteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler,
+  skip,
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
@@ -95,4 +158,9 @@ module.exports = {
   otpResendLimiter,
   blockAppealLimiter,
   emailCheckLimiter,
+  orderLimiter,
+  reviewLimiter,
+  ticketLimiter,
+  searchLimiter,
+  publicWriteLimiter,
 };
