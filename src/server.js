@@ -4,9 +4,14 @@ const app = require('./app');
 const { env, assertProdEnv } = require('./config/env');
 const { connectDB, disconnectDB } = require('./config/db');
 const { initSocket } = require('./services/socket.service');
+const { startExpiryCron, stopExpiryCron } = require('./jobs/expiryCron');
 
+let server;
 
-
+async function start() {
+  assertProdEnv();
+  await connectDB();
+  server = http.createServer(app);
   initSocket(server);
   server.listen(env.port, () => {
     console.log(`[server] listening on port ${env.port} (${env.nodeEnv})`);
