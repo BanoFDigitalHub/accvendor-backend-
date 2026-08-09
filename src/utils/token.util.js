@@ -2,9 +2,15 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { env } = require('../config/env');
 
-function signAccessToken(user) {
+// Every token is bound to the app-shell it was issued for. A token minted by the public
+// site can never satisfy an admin route and vice versa, so being signed in on one side
+// grants nothing on the other — even in the same browser, from the same IP.
+const SCOPE_SITE = 'site';
+const SCOPE_ADMIN = 'admin';
+
+function signAccessToken(user, scope = SCOPE_SITE) {
   return jwt.sign(
-    { sub: user._id.toString(), role: user.role, tokenVersion: user.tokenVersion },
+    { sub: user._id.toString(), role: user.role, tokenVersion: user.tokenVersion, scope },
     env.jwtAccessSecret,
     { expiresIn: env.jwtAccessExpires }
   );
@@ -14,8 +20,8 @@ function verifyAccessToken(token) {
   return jwt.verify(token, env.jwtAccessSecret);
 }
 
-function signRefreshToken(user, jti) {
-  return jwt.sign({ sub: user._id.toString(), jti }, env.jwtRefreshSecret, {
+function signRefreshToken(user, jti, scope = SCOPE_SITE) {
+  return jwt.sign({ sub: user._id.toString(), jti, scope }, env.jwtRefreshSecret, {
     expiresIn: `${env.jwtRefreshExpiresDays}d`,
   });
 }
@@ -55,6 +61,8 @@ function verifyCredentialToken(token) {
 }
 
 module.exports = {
+  SCOPE_SITE,
+  SCOPE_ADMIN,
   signAccessToken,
   verifyAccessToken,
   signRefreshToken,

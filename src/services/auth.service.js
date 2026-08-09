@@ -11,6 +11,8 @@ const { otpEmail, passwordResetEmail } = require('../utils/emailTemplates');
 const {
   signAccessToken,
   signRefreshToken,
+  SCOPE_SITE,
+  SCOPE_ADMIN,
   verifyRefreshToken,
   newJti,
   refreshExpiryDate,
@@ -24,10 +26,38 @@ function normalizeAnswer(answer) {
   return answer.trim().toLowerCase();
 }
 
-async function signup({ email, password, securityQuestion, securityAnswer }) {
+/**
+ * Seconds still to wait before `lastSentAt` clears a cooldown, or 0 if it already has.
+ *
+ * Every cooldown in this file is measured against a timestamp stored on the pending-signup
+ * record, never against anything the client reports - so refreshing the page, clearing local
+ * storage or opening a second tab cannot shorten a wait.
+ */
+function cooldownRemaining(lastSentAt, cooldownSeconds) {
+  if (!lastSentAt) return 0;
+  const elapsed = (Date.now() - new Date(lastSentAt).getTime()) / 1000;
+  return Math.max(0, Math.ceil(cooldownSeconds - elapsed));
+}
+
+// 429 with the remaining seconds attached, so the client can show a live countdown rather than
+// guessing. Deliberately a controlled response - never a crash, and never a duplicate send.
+function tooSoonError(retryAfter) {
+  return new ApiError(429, `Please wait ${retryAfter}s before requesting again`, { retryAfter });
+}
+
+async function signup({ name, email, password, securityQuestion, securityAnswer }, meta = {}) {
   const existing = await User.findOne({ email });
   if (existing) {
     throw new ApiError(409, 'An account with this email already exists');
+  }
+
+  // A repeat signup for an email that already has a pending record *is* a resend, so it obeys
+  // the same cooldown. This is what makes a burst of double-clicks collapse into one OTP and
+  // one email instead of one per click.
+  const pending = await PendingSignup.findOne({ email });
+  if (pending) {
+    const retryAfter = cooldownRemaining(pending.otpLastSentAt, env.signupCooldownSeconds);
+    if (retryAfter > 0) throw tooSoonError(retryAfter);
   }
 
   const passwordHash = await bcrypt.hash(password, env.bcryptSaltRounds);
@@ -42,13 +72,21 @@ async function signup({ email, password, securityQuestion, securityAnswer }) {
   await PendingSignup.findOneAndUpdate(
     { email },
     {
-      email,
-      passwordHash,
-      securityQuestion,
-      securityAnswerHash,
-      otpCodeHash,
-      otpExpiresAt: new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000),
-      otpLastSentAt: new Date(),
+      $set: {
+        name,
+        email,
+        passwordHash,
+        securityQuestion,
+        securityAnswerHash,
+        otpCodeHash,
+        otpExpiresAt: new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000),
+        otpLastSentAt: new Date(),
+        // A fresh code resets the verification attempt budget and any lock it earned.
+        verifyAttempts: 0,
+        verifyLockedUntil: null,
+        lastIp: meta.ip || null,
+      },
+      $inc: { otpSendCount: 1 },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
@@ -59,7 +97,7 @@ async function signup({ email, password, securityQuestion, securityAnswer }) {
     html: otpEmail(otp, env.otpExpiresMinutes),
   });
 
-  return { email };
+  return { email, cooldownSeconds: env.signupCooldownSeconds, otpExpiresMinutes: env.otpExpiresMinutes };
 }
 
 async function verifyOtp({ email, otp }) {
@@ -68,14 +106,40 @@ async function verifyOtp({ email, otp }) {
     throw new ApiError(404, 'No pending signup found for this email. Please sign up again.');
   }
 
+  // A six-digit code is a 10^6 space, so unlimited guesses would be brute-forceable in
+  // minutes. Past the attempt budget the record locks for a cooling period; the lock lives on
+  // the record, so it survives a refresh, a new tab, or a different IP.
+  if (pending.verifyLockedUntil && pending.verifyLockedUntil > new Date()) {
+    const retryAfter = Math.ceil((pending.verifyLockedUntil.getTime() - Date.now()) / 1000);
+    throw new ApiError(429, `Too many incorrect codes. Try again in ${Math.ceil(retryAfter / 60)} minute(s).`, {
+      retryAfter,
+    });
+  }
+
   if (pending.otpExpiresAt < new Date()) {
-    throw new ApiError(400, 'OTP has expired, please sign up again to request a new one');
+    throw new ApiError(400, 'OTP expired. Request a new OTP.', { expired: true });
   }
 
   const match = await bcrypt.compare(otp, pending.otpCodeHash);
-  if (!match) throw new ApiError(400, 'Invalid OTP');
+  if (!match) {
+    pending.verifyAttempts += 1;
+    const locked = pending.verifyAttempts >= env.otpMaxVerifyAttempts;
+    if (locked) {
+      pending.verifyLockedUntil = new Date(Date.now() + env.otpVerifyLockMinutes * 60 * 1000);
+      pending.verifyAttempts = 0;
+    }
+    await pending.save();
+
+    const left = locked ? 0 : env.otpMaxVerifyAttempts - pending.verifyAttempts;
+    throw new ApiError(
+      400,
+      left > 0 ? `Invalid OTP. ${left} attempt${left === 1 ? '' : 's'} remaining.` : 'Invalid OTP',
+      { attemptsRemaining: left }
+    );
+  }
 
   const user = await User.create({
+    name: pending.name,
     email: pending.email,
     passwordHash: pending.passwordHash,
     securityQuestion: pending.securityQuestion,
@@ -93,16 +157,17 @@ async function resendOtp({ email }) {
     throw new ApiError(404, 'No pending signup found for this email. Please sign up again.');
   }
 
-  const secondsSinceLast = (Date.now() - pending.otpLastSentAt.getTime()) / 1000;
-  if (secondsSinceLast < env.otpResendCooldownSeconds) {
-    const wait = Math.ceil(env.otpResendCooldownSeconds - secondsSinceLast);
-    throw new ApiError(429, `Please wait ${wait}s before requesting another OTP`);
-  }
+  const retryAfter = cooldownRemaining(pending.otpLastSentAt, env.otpResendCooldownSeconds);
+  if (retryAfter > 0) throw tooSoonError(retryAfter);
 
   const otp = generateOtp();
   pending.otpCodeHash = await bcrypt.hash(otp, env.bcryptSaltRounds);
   pending.otpExpiresAt = new Date(Date.now() + env.otpExpiresMinutes * 60 * 1000);
   pending.otpLastSentAt = new Date();
+  pending.otpSendCount += 1;
+  // Issuing a new code restores the attempt budget - the old code is dead either way.
+  pending.verifyAttempts = 0;
+  pending.verifyLockedUntil = null;
   await pending.save();
 
   await sendMail({
@@ -114,24 +179,26 @@ async function resendOtp({ email }) {
   return pending;
 }
 
-async function issueTokens(user, { userAgent, ip } = {}) {
+async function issueTokens(user, { userAgent, ip } = {}, scope = SCOPE_SITE) {
   const jti = newJti();
-  user.refreshTokens.push({ jti, expiresAt: refreshExpiryDate(), userAgent, ip });
+  user.refreshTokens.push({ jti, expiresAt: refreshExpiryDate(), userAgent, ip, scope });
   if (user.refreshTokens.length > MAX_REFRESH_TOKENS_PER_USER) {
     user.refreshTokens = user.refreshTokens.slice(-MAX_REFRESH_TOKENS_PER_USER);
   }
   await user.save();
 
-  const accessToken = signAccessToken(user);
-  const refreshToken = signRefreshToken(user, jti);
+  const accessToken = signAccessToken(user, scope);
+  const refreshToken = signRefreshToken(user, jti, scope);
   return { accessToken, refreshToken };
 }
 
-async function login({ email, password }, meta) {
+async function login({ email, password }, meta, scope = SCOPE_SITE) {
   const user = await User.findOne({ email });
   if (!user) throw new ApiError(401, 'Invalid email or password');
 
-  if (user.isBlocked) throw new ApiError(403, 'This account has been blocked');
+  if (user.isBlocked) {
+    throw new ApiError(403, 'This account has been blocked', { blocked: true, blockReason: user.blockReason });
+  }
 
   if (user.lockUntil && user.lockUntil > new Date()) {
     const minutes = Math.ceil((user.lockUntil.getTime() - Date.now()) / 60000);
@@ -155,15 +222,20 @@ async function login({ email, password }, meta) {
   user.lockUntil = null;
   await user.save();
 
-  if (user.role === 'admin' && user.totpEnabled) {
+  // Only the admin login endpoint can mint admin-scoped sessions, and only for admins.
+  if (scope === SCOPE_ADMIN && user.role !== 'admin') {
+    throw new ApiError(401, 'Invalid email or password');
+  }
+
+  if (user.role === 'admin' && user.totpEnabled && scope === SCOPE_ADMIN) {
     return { requires2FA: true, pendingToken: sign2faPendingToken(user) };
   }
 
-  const tokens = await issueTokens(user, meta);
+  const tokens = await issueTokens(user, meta, scope);
   return { user, tokens };
 }
 
-async function verifyLoginTwoFactor({ pendingToken, code }, meta) {
+async function verifyLoginTwoFactor({ pendingToken, code }, meta, scope = SCOPE_ADMIN) {
   let payload;
   try {
     payload = verify2faPendingToken(pendingToken);
@@ -178,7 +250,9 @@ async function verifyLoginTwoFactor({ pendingToken, code }, meta) {
   const valid = authenticator.verify({ token: code, secret: user.totpSecret });
   if (!valid) throw new ApiError(401, 'Invalid authentication code');
 
-  const tokens = await issueTokens(user, meta);
+  if (scope === SCOPE_ADMIN && user.role !== 'admin') throw new ApiError(403, 'Insufficient permissions');
+
+  const tokens = await issueTokens(user, meta, scope);
   return { user, tokens };
 }
 
@@ -221,13 +295,16 @@ async function disableTwoFactor(userId, password) {
   return user;
 }
 
-async function refresh(refreshToken, meta) {
+async function refresh(refreshToken, meta, scope = SCOPE_SITE) {
   let payload;
   try {
     payload = verifyRefreshToken(refreshToken);
   } catch {
     throw new ApiError(401, 'Invalid or expired refresh token');
   }
+
+  // A refresh token from the other app-shell cannot be upgraded into a session here.
+  if ((payload.scope || SCOPE_SITE) !== scope) throw new ApiError(401, 'Invalid refresh token');
 
   const user = await User.findById(payload.sub);
   if (!user) throw new ApiError(401, 'Invalid refresh token');
@@ -245,7 +322,9 @@ async function refresh(refreshToken, meta) {
   user.refreshTokens = user.refreshTokens.filter((t) => t.jti !== payload.jti);
   await user.save();
 
-  const tokens = await issueTokens(user, meta);
+  if (scope === SCOPE_ADMIN && user.role !== 'admin') throw new ApiError(403, 'Insufficient permissions');
+
+  const tokens = await issueTokens(user, meta, scope);
   return { user, tokens };
 }
 
@@ -311,6 +390,21 @@ async function resetPasswordWithSecurityQuestion({ email, securityAnswer, newPas
   await applyPasswordReset(user, newPassword);
 }
 
+async function changePassword(userId, { currentPassword, newPassword }, meta) {
+  const user = await User.findById(userId);
+  if (!user) throw new ApiError(404, 'User not found');
+
+  const match = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!match) throw new ApiError(401, 'Current password is incorrect');
+
+  // Reuses the same invalidate-everything semantics as a forced reset, then immediately
+  // re-issues fresh tokens for this session so the user isn't logged out by their own action —
+  // any other logged-in devices/sessions do get signed out, which is the intended behavior.
+  await applyPasswordReset(user, newPassword);
+  const tokens = await issueTokens(user, meta);
+  return { user, tokens };
+}
+
 async function applyPasswordReset(user, newPassword) {
   user.passwordHash = await bcrypt.hash(newPassword, env.bcryptSaltRounds);
   user.resetTokenHash = null;
@@ -323,6 +417,7 @@ async function applyPasswordReset(user, newPassword) {
 }
 
 module.exports = {
+  cooldownRemaining,
   signup,
   verifyOtp,
   resendOtp,
@@ -337,5 +432,6 @@ module.exports = {
   resetPasswordWithToken,
   getSecurityQuestion,
   resetPasswordWithSecurityQuestion,
+  changePassword,
   issueTokens,
 };

@@ -15,6 +15,7 @@ const password = z
   .max(72, 'Password must be at most 72 characters');
 
 const signupSchema = z.object({
+  name: z.string().trim().min(1, 'Full name is required').max(100),
   email,
   password,
   securityQuestion: z.enum(SECURITY_QUESTIONS, { error: 'Invalid security question' }),
@@ -46,6 +47,10 @@ const forgotPasswordSchema = z.object({
   email,
 });
 
+const checkEmailSchema = z.object({
+  email,
+});
+
 const resetPasswordWithTokenSchema = z.object({
   email,
   token: z.string().min(1, 'Reset token is required'),
@@ -62,9 +67,20 @@ const resetPasswordWithSecurityQuestionSchema = z.object({
   newPassword: password,
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: password,
+});
+
+const blockAppealSchema = z.object({
+  email,
+  message: z.string().trim().min(1, 'Message is required').max(2000),
+});
+
 module.exports = {
   SECURITY_QUESTIONS,
   signupSchema,
+  checkEmailSchema,
   verifyOtpSchema,
   resendOtpSchema,
   loginSchema,
@@ -74,4 +90,6 @@ module.exports = {
   resetPasswordWithTokenSchema,
   getSecurityQuestionSchema,
   resetPasswordWithSecurityQuestionSchema,
+  changePasswordSchema,
+  blockAppealSchema,
 };

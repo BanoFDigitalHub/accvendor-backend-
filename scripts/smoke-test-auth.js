@@ -71,6 +71,7 @@ async function run() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        name: 'Smoke Test User',
         email: emailA,
         password: passwordA,
         securityQuestion: 'What city were you born in?',
@@ -151,6 +152,7 @@ async function run() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        name: 'Smoke Test User',
         email: emailB,
         password: passwordB,
         securityQuestion: 'What city were you born in?',

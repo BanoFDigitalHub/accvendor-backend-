@@ -6,12 +6,15 @@ const refreshTokenSchema = new mongoose.Schema(
     expiresAt: { type: Date, required: true },
     userAgent: { type: String },
     ip: { type: String },
+    // Which app-shell issued this session: 'site' or 'admin'. Sessions never cross over.
+    scope: { type: String, enum: ['site', 'admin'], default: 'site' },
   },
   { _id: false, timestamps: { createdAt: true, updatedAt: false } }
 );
 
 const userSchema = new mongoose.Schema(
   {
+    name: { type: String, required: true, trim: true },
     email: {
       type: String,
       required: true,
@@ -46,6 +49,7 @@ const userSchema = new mongoose.Schema(
     // Instant token invalidation (admin block, password change, etc.)
     tokenVersion: { type: Number, default: 0 },
     isBlocked: { type: Boolean, default: false },
+    blockReason: { type: String, default: null },
 
     // Admin TOTP 2FA (optional add-on)
     totpSecret: { type: String, default: null },
@@ -60,6 +64,7 @@ const userSchema = new mongoose.Schema(
 userSchema.methods.toSafeJSON = function toSafeJSON() {
   return {
     id: this._id,
+    name: this.name,
     email: this.email,
     role: this.role,
     isVerified: this.isVerified,
