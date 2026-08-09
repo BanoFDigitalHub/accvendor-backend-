@@ -21,13 +21,17 @@ const rawOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
  *
  * CLIENT_URL is a whitelist, so it legitimately contains several origins — often with
  * localhost among them so a developer can work against the deployed API. Taking the first
- * entry blindly meant that on a deployment whose CLIENT_URL happened to start with
- * localhost, every password-reset link, order link and 2FA share URL sent to a real customer
- * pointed at their own machine. Outside development, skip loopback origins.
+ * entry blindly meant that on a deployment whose CLIENT_URL happened to start with localhost,
+ * every password-reset link, order link and 2FA share URL sent to a real customer pointed at
+ * their own machine.
+ *
+ * A loopback address is never reachable by the person receiving the link, so it is only ever
+ * the right answer when there is nothing else on the list — which is exactly the pure local
+ * setup. Deliberately not conditioned on NODE_ENV: a host that forgets to set it would put the
+ * bug straight back, and "don't send someone a link to their own machine" holds regardless.
  */
 function publicClientUrl() {
   const isLoopback = (o) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
-  if ((process.env.NODE_ENV || 'development') === 'development') return rawOrigins[0];
   return rawOrigins.find((o) => !isLoopback(o)) || rawOrigins[0];
 }
 
