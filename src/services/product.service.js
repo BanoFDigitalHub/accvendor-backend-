@@ -1,29 +1,51 @@
 const Product = require('../models/Product');
 const Category = require('../models/Category');
 const ApiError = require('../utils/ApiError');
+const { getRates } = require('./settings.service');
+const { allPrices, priceInCurrency, DEFAULT_CURRENCY } = require('../utils/money');
+const { optimizedUrl } = require('./upload.service');
 
-function toPublicProduct(p) {
+/**
+ * Shapes a product for public consumption.
+ *
+ * `prices` carries every currency at once so the storefront's currency switcher is instant and
+ * purely presentational — it never refetches, and it never computes an amount the server didn't
+ * authorise. `price`/`salePrice`/`effectivePrice` stay as the PKR base values so existing
+ * readers keep working.
+ */
+function toPublicProduct(p, rates) {
+  const prices = allPrices(p, rates);
   return {
     id: p._id,
     name: p.name,
     slug: p.slug,
     description: p.description,
-    images: p.images,
+    images: (p.images || []).map((url) => optimizedUrl(url)),
+    tags: p.tags || [],
     category: p.category,
+
+    // Base (PKR) — unchanged field names, so nothing downstream had to be touched.
     price: p.price,
     salePrice: p.salePrice,
     effectivePrice: p.salePrice != null ? p.salePrice : p.price,
+    // Every currency, resolved server-side.
+    prices,
+
     durationDays: p.durationDays,
+    warranty: p.warranty || '',
+    validity: p.validity || '',
+
     stock: p.stock,
     inStock: p.stock > 0,
     isHotProduct: p.isHotProduct,
     ratingAvg: p.ratingAvg,
     reviewCount: p.reviewCount,
     createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
   };
 }
 
-async function listProducts({ page, limit, category, search, hot, sort }) {
+async function listProducts({ page, limit, category, search, hot, sort, currency }) {
   const filter = { isActive: true };
 
   if (category) {
@@ -35,7 +57,15 @@ async function listProducts({ page, limit, category, search, hot, sort }) {
   }
 
   if (hot !== undefined) filter.isHotProduct = hot;
-  if (search) filter.$text = { $search: search };
+
+  // Substring match rather than $text: a shopper typing "net" expects "Netflix", and $text only
+  // matches whole stemmed words. The input is escaped so a regex metacharacter in the query is
+  // matched literally instead of turning into a pattern (or a catastrophic backtrack).
+  if (search) {
+    const escaped = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escaped, 'i');
+    filter.$or = [{ name: rx }, { tags: rx }];
+  }
 
   const sortMap = {
     newest: { createdAt: -1 },
@@ -45,38 +75,57 @@ async function listProducts({ page, limit, category, search, hot, sort }) {
 
   const skip = (page - 1) * limit;
 
-  const [items, total] = await Promise.all([
+  const [items, total, rates] = await Promise.all([
     Product.find(filter)
       .populate('category', 'name slug')
-      .sort(sortMap[sort])
+      .sort(sortMap[sort] || sortMap.newest)
       .skip(skip)
       .limit(limit)
       .lean(),
     Product.countDocuments(filter),
+    getRates(),
   ]);
 
   return {
-    items: items.map(toPublicProduct),
+    items: items.map((p) => toPublicProduct(p, rates)),
     total,
     page,
     limit,
     totalPages: Math.max(1, Math.ceil(total / limit)),
+    currency: currency || DEFAULT_CURRENCY,
   };
 }
 
 async function getProductBySlug(slug) {
-  const product = await Product.findOne({ slug, isActive: true }).populate('category', 'name slug').lean();
+  const [product, rates] = await Promise.all([
+    Product.findOne({ slug, isActive: true }).populate('category', 'name slug').lean(),
+    getRates(),
+  ]);
   if (!product) throw new ApiError(404, 'Product not found');
-  return toPublicProduct(product);
+  return toPublicProduct(product, rates);
 }
 
 async function listHotProducts(limit = 8) {
-  const items = await Product.find({ isActive: true, isHotProduct: true })
-    .populate('category', 'name slug')
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .lean();
-  return items.map(toPublicProduct);
+  const [items, rates] = await Promise.all([
+    Product.find({ isActive: true, isHotProduct: true })
+      .populate('category', 'name slug')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean(),
+    getRates(),
+  ]);
+  return items.map((p) => toPublicProduct(p, rates));
 }
 
-module.exports = { listProducts, getProductBySlug, listHotProducts };
+/**
+ * Server-authoritative unit price for one product in one currency.
+ *
+ * Order creation and coupon evaluation both go through this, so a price can never come from
+ * the client — the request only ever names a product and a currency.
+ */
+async function resolveUnitPrice(product, currency, rates) {
+  const resolved = priceInCurrency(product, currency, rates);
+  return resolved.effectivePrice;
+}
+
+module.exports = { listProducts, getProductBySlug, listHotProducts, toPublicProduct, resolveUnitPrice };
