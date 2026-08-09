@@ -156,7 +156,7 @@ function baseTemplate(title, bodyHtml, options = {}) {
                 <p style="margin:0;color:${BRAND.ink};font-size:14px;font-weight:700;">${BRAND.name}</p>
                 <p style="margin:3px 0 0;color:${BRAND.faint};font-size:12px;">${BRAND.tagline}</p>
                 <p style="margin:14px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">
-                  &copy; ${new Date().getFullYear()} ${BRAND.name} &middot; This is an automated message, please don't reply.
+                  &copy; ${env.copyrightYear} ${BRAND.name} &middot; This is an automated message, please don't reply.
                 </p>
               </td>
             </tr>
@@ -277,6 +277,7 @@ function orderApprovedEmail(order) {
   const body = `
     ${p(`Good news — your payment for order ${strong(`${orderRef(order)}`)} has been approved.`)}
     ${p("We're preparing your account details now and will send them over shortly.")}
+    ${loginButton('View your order')}
   `;
   return baseTemplate('Payment approved', body, {
     preheader: `Payment approved for order ${orderRef(order)}`,
@@ -311,10 +312,12 @@ function orderDeliveredEmail(order, downloadUrl) {
       )
     : '';
 
+  // A text-only delivery has no download link, so it would otherwise have no call to action
+  // at all — fall back to the dashboard, which always holds the credentials.
   const downloadBlock = downloadUrl
     ? `${button(downloadUrl, 'Download credentials')}
        ${p('This download link expires shortly for your security — you can always request a fresh one from your dashboard.', `font-size:13px;text-align:center;`)}`
-    : '';
+    : loginButton('View in your dashboard');
 
   const body = `
     ${p(`Your order ${strong(`${orderRef(order)}`)} is ready. Everything you need is below.`)}

@@ -207,6 +207,42 @@ async function run() {
       body: JSON.stringify({ email: emailA, password: 'NewPassword456!' }),
     });
     assert(res.status === 200, 'login works with the new password');
+
+    // --- Concurrent signup burst ---------------------------------------------------------
+    // Reading the pending record and then checking its cooldown in JS is not enough: fired at
+    // once, every request reads "no pending record" before any of them writes, so all of them
+    // pass the check and each sends its own OTP — plus its own bcrypt hash, which is the
+    // expensive part. The cooldown claim has to be the write. Regression test for that.
+    const burstEmail = `burst-${Date.now()}@example.com`;
+    const burstBody = JSON.stringify({
+      name: 'Burst',
+      email: burstEmail,
+      password: 'BurstPass123!',
+      securityQuestion: 'What city were you born in?',
+      securityAnswer: 'lahore',
+    });
+    const burst = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        fetch(`${base}/api/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: burstBody,
+        })
+      )
+    );
+    const acceptedCount = burst.filter((r) => r.status < 400).length;
+    const refusedCount = burst.filter((r) => r.status === 429).length;
+    assert(acceptedCount === 1, `8 simultaneous signups send exactly one OTP (got ${acceptedCount})`);
+    assert(refusedCount === burst.length - 1, `the other ${refusedCount} get a controlled 429`);
+
+    const PendingSignup = require('../src/models/PendingSignup');
+    const User = require('../src/models/User');
+    assert((await PendingSignup.countDocuments({ email: burstEmail })) === 1, 'only one pending signup row exists');
+    assert((await User.countDocuments({ email: burstEmail })) === 0, 'no User row is created before verification');
+
+    const refused = burst.find((r) => r.status === 429);
+    const refusedBody = await refused.json();
+    assert(refusedBody.data?.retryAfter > 0, `the 429 carries retryAfter for the UI countdown (${refusedBody.data?.retryAfter}s)`);
   } finally {
     console.log = originalLog;
     server.close();

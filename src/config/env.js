@@ -1,4 +1,15 @@
-const requiredInProd = ['MONGODB_URI', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'];
+// CREDENTIAL_URL_SECRET and TOTP_SHARE_SECRET are required rather than warned about, because
+// their fallbacks are values published in this repository. Booting production without them
+// means anyone can forge a signed credential-download URL for any buyer's order, and anyone
+// with a copy of the database can decrypt every shared 2FA secret. A warning in a log nobody
+// reads is not a proportionate response to either.
+const requiredInProd = [
+  'MONGODB_URI',
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET',
+  'CREDENTIAL_URL_SECRET',
+  'TOTP_SHARE_SECRET',
+];
 
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -121,6 +132,9 @@ const env = {
 
   // Surfaced in the storefront footer/support area and the admin sidebar. Blank hides the link.
   discordUrl: process.env.DISCORD_URL || '',
+  // Shown in the email footer. Kept in step with Settings.footer.copyrightYear (the storefront
+  // footer) so a customer never sees two different years across the site and its emails.
+  copyrightYear: process.env.COPYRIGHT_YEAR || '2024',
 
   seedAdminEmail: process.env.SEED_ADMIN_EMAIL || 'admin@accvendor.com',
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!',
@@ -130,9 +144,9 @@ const env = {
 // loudly rather than refusing to boot: an existing deploy that hasn't set them yet should
 // come up with the feature degraded, not go dark entirely.
 const warnIfDefaultInProd = [
-  ['TOTP_SHARE_SECRET', 'shareable 2FA links are encrypted with a publicly known key'],
-  ['CREDENTIAL_URL_SECRET', 'signed credential download URLs are forgeable'],
   ['EMAIL_LOGO_URL', 'transactional emails fall back to the default logo URL'],
+  ['RESEND_API_KEY', 'email falls back to SMTP, which Render blocks — signup OTPs will not arrive'],
+  ['DISCORD_URL', 'the Discord link is hidden until it is set here or in Admin → Settings'],
 ];
 
 function assertProdEnv() {
