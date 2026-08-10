@@ -418,7 +418,7 @@ async function forgotPassword({ email }) {
   user.resetTokenExpiresAt = new Date(Date.now() + env.resetTokenExpiresMinutes * 60 * 1000);
   await user.save();
 
-  const link = `${env.clientUrl}/reset-password?email=${encodeURIComponent(email)}&token=${token}`;
+  const link = `${env.siteUrl}/reset-password?email=${encodeURIComponent(email)}&token=${token}`;
   await sendMail({
     to: user.email,
     subject: 'Reset your Accvendor password',

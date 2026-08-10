@@ -11,36 +11,88 @@ const requiredInProd = [
   'TOTP_SHARE_SECRET',
 ];
 
-const rawOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+const trimOrigin = (o) => String(o || '').trim().replace(/\/+$/, '');
+
+const listedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
   .split(',')
-  .map((o) => o.trim().replace(/\/$/, ''))
+  .map(trimOrigin)
   .filter(Boolean);
 
+const isLoopback = (o) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
+
+// `admin.accvendor.com`, `accvendor-admin.vercel.app`, `admin-accvendor.…` — the admin shell
+// deploys to its own host, and that host must never be handed to a customer.
+const looksLikeAdmin = (o) => /(^|[.-])admin([.-]|$)/i.test(o.replace(/^https?:\/\//i, ''));
+
 /**
- * The one public URL to put in emails and share links.
+ * The two public origins, kept apart on purpose.
  *
- * CLIENT_URL is a whitelist, so it legitimately contains several origins — often with
- * localhost among them so a developer can work against the deployed API. Taking the first
- * entry blindly meant that on a deployment whose CLIENT_URL happened to start with localhost,
- * every password-reset link, order link and 2FA share URL sent to a real customer pointed at
- * their own machine.
+ * CLIENT_URL is a CORS whitelist, so it legitimately holds several origins: the storefront, the
+ * admin panel, often localhost so a developer can work against the deployed API. Anything a
+ * *customer* receives — reset link, order link, 2FA share URL, every button in every email —
+ * has to be the storefront specifically. Two entries on that list are wrong answers for it:
  *
- * A loopback address is never reachable by the person receiving the link, so it is only ever
- * the right answer when there is nothing else on the list — which is exactly the pure local
- * setup. Deliberately not conditioned on NODE_ENV: a host that forgets to set it would put the
- * bug straight back, and "don't send someone a link to their own machine" holds regardless.
+ *   - a loopback address, which is never reachable by the person receiving the link;
+ *   - the admin origin, whose bundle has no storefront routes at all, so the link lands on the
+ *     admin login redirect instead of the page it named.
+ *
+ * SITE_URL / ADMIN_URL name each one explicitly and are the recommended setup. Without them we
+ * fall back to picking out of CLIENT_URL by the rules above, which is right for the ordinary
+ * deployment and for the pure-local one. Deliberately not conditioned on NODE_ENV: a host that
+ * forgets to set it would put the bug straight back.
  */
-function publicClientUrl() {
-  const isLoopback = (o) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
-  return rawOrigins.find((o) => !isLoopback(o)) || rawOrigins[0];
+function resolveSiteUrl() {
+  const explicit = trimOrigin(process.env.SITE_URL);
+  if (explicit) return explicit;
+  return (
+    listedOrigins.find((o) => !isLoopback(o) && !looksLikeAdmin(o)) ||
+    listedOrigins.find((o) => !isLoopback(o)) ||
+    listedOrigins.find((o) => !looksLikeAdmin(o)) ||
+    listedOrigins[0]
+  );
 }
+
+function resolveAdminUrl(siteUrl) {
+  const explicit = trimOrigin(process.env.ADMIN_URL);
+  if (explicit) return explicit;
+  return listedOrigins.find(looksLikeAdmin) || siteUrl;
+}
+
+/**
+ * The origin of this API as the outside world reaches it.
+ *
+ * It goes into the credential-download links a buyer gets by email and opens from their
+ * dashboard, so the localhost default is only ever correct for local development. Render
+ * injects RENDER_EXTERNAL_URL into every service, which makes the deployed case work with no
+ * configuration at all — without it, a buyer's "Download credentials" button pointed at port
+ * 5000 on their own machine.
+ */
+function resolveApiUrl() {
+  const explicit = trimOrigin(process.env.API_URL);
+  if (explicit) return explicit;
+  const renderUrl = trimOrigin(process.env.RENDER_EXTERNAL_URL);
+  if (renderUrl) return `${renderUrl}/api`;
+  return `http://localhost:${parseInt(process.env.PORT, 10) || 5000}/api`;
+}
+
+const siteUrl = resolveSiteUrl();
+const adminUrl = resolveAdminUrl(siteUrl);
+
+// Naming an origin in SITE_URL/ADMIN_URL is also permission for its browser to call this API —
+// otherwise CORS would reject the very shell we just told everyone to use.
+const clientOrigins = [...new Set([...listedOrigins, siteUrl, adminUrl].filter(Boolean))];
 
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5000,
-  clientUrl: publicClientUrl(),
-  clientOrigins: rawOrigins,
-  apiUrl: process.env.API_URL || `http://localhost:${parseInt(process.env.PORT, 10) || 5000}/api`,
+  // The storefront. Every customer-facing link is built from this one.
+  siteUrl,
+  // The admin panel's own origin. Nothing customer-facing may use it.
+  adminUrl,
+  // Kept as the name the rest of the app already uses for "the public site".
+  clientUrl: siteUrl,
+  clientOrigins,
+  apiUrl: resolveApiUrl(),
 
   mongoUri: process.env.MONGODB_URI,
   mongoDbName: process.env.MONGODB_DB_NAME || 'accvendor',
@@ -180,6 +232,20 @@ function assertProdEnv() {
     if (!process.env[key]) {
       console.warn(`[env] ${key} is not set in production — ${consequence}.`);
     }
+  }
+
+  // A loopback URL in production is not a misconfiguration the app can survive quietly: every
+  // link built from it points the recipient at their own machine, and the failure only shows up
+  // in someone else's browser, hours later.
+  if (isLoopback(env.siteUrl)) {
+    console.warn(
+      `[env] siteUrl resolved to ${env.siteUrl} in production — set SITE_URL (or list the storefront origin in CLIENT_URL) or every emailed link will be unreachable.`
+    );
+  }
+  if (isLoopback(env.apiUrl.replace(/\/api$/, ''))) {
+    console.warn(
+      `[env] apiUrl resolved to ${env.apiUrl} in production — set API_URL or credential download links will point at the recipient's own machine.`
+    );
   }
 }
 

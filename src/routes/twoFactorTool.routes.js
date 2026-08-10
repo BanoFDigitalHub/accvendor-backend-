@@ -51,7 +51,9 @@ router.post(
     });
     apiResponse(res, 201, 'Share link created', {
       token,
-      url: `${env.clientUrl.replace(/\/$/, '')}/2fa/share/${token}`,
+      // The share page only exists in the storefront bundle, so this must be the site origin —
+      // on the admin domain the same path falls through to the admin login redirect.
+      url: `${env.siteUrl.replace(/\/$/, '')}/2fa/share/${token}`,
       expiresAt,
     });
   })

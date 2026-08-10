@@ -16,9 +16,24 @@ services:
       - key: NODE_ENV
         value: production
 
-      # Where the storefront is hosted. Comma-separate to allow more than one origin.
+      # Where the front-ends are hosted. Comma-separate to allow more than one origin.
       # This is the CORS whitelist — the API refuses anything not listed.
       - key: CLIENT_URL
+        sync: false
+
+      # Which of those origins is which. SITE_URL is the storefront and is what every
+      # customer-facing link in every email is built from; ADMIN_URL is the admin panel and is
+      # never sent to a customer. Both are guessed from CLIENT_URL if unset, but a wrong guess
+      # only shows up in someone else's inbox — set them.
+      - key: SITE_URL
+        sync: false
+      - key: ADMIN_URL
+        sync: false
+
+      # This API's own public URL, used for the signed credential-download links buyers open
+      # from their email and dashboard. Render injects RENDER_EXTERNAL_URL, which is used
+      # automatically when this is unset — set it only if the API sits behind another domain.
+      - key: API_URL
         sync: false
 
       # MongoDB Atlas connection string. Allow access from anywhere (0.0.0.0/0) in Atlas
@@ -34,6 +49,10 @@ services:
       - key: JWT_REFRESH_SECRET
         generateValue: true
       - key: CREDENTIAL_URL_SECRET
+        generateValue: true
+      # Encrypts the TOTP secrets behind 2FA share links. Required in production — the app
+      # refuses to boot without it, because its fallback is published in this repository.
+      - key: TOTP_SHARE_SECRET
         generateValue: true
 
       # Email. Resend is required here rather than merely preferred: Render blocks outbound

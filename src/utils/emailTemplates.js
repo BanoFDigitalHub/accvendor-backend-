@@ -18,7 +18,8 @@ const BRAND = {
   bad: '#b3261e',
 };
 
-const SITE_URL = env.clientUrl.replace(/\/$/, '');
+// The storefront, never the admin origin — every button below is pressed by a customer.
+const SITE_URL = env.siteUrl.replace(/\/$/, '');
 // Must be an absolute, publicly reachable https URL: a mail client cannot resolve a local
 // filesystem path or a relative URL, and a broken logo is what every recipient would see.
 // Defaults to the deployed storefront's copy; override with EMAIL_LOGO_URL.

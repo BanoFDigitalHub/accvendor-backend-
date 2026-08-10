@@ -27,7 +27,7 @@ async function createTicket(userId, { subject, body, attachmentUrl, orderId }) {
     category: 'ticket',
     title: 'New support ticket',
     body: ticket.subject,
-    link: `/admin/support/tickets/${ticket._id}`,
+    link: `/admin/support/${ticket._id}`,
     meta: { ticketId: String(ticket._id) },
   });
   return ticket;
@@ -50,7 +50,7 @@ async function addMessage(userId, ticketId, { body, attachmentUrl }) {
     category: 'ticket',
     title: 'Customer replied to a ticket',
     body: ticket.subject,
-    link: `/admin/support/tickets/${ticket._id}`,
+    link: `/admin/support/${ticket._id}`,
     meta: { ticketId: String(ticket._id) },
   });
   return ticket;
@@ -100,7 +100,7 @@ async function createBlockAppeal({ email, message }) {
     category: 'ticket',
     title: 'Account block appeal submitted',
     body: email,
-    link: `/admin/support/tickets/${ticket._id}`,
+    link: `/admin/support/${ticket._id}`,
     meta: { ticketId: String(ticket._id), category: 'block_appeal' },
   });
   return ticket;

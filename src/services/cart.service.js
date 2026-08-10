@@ -55,8 +55,13 @@ async function toPublicCart(cart, currency) {
         USD: priceInCurrency(product, 'USD', rates),
         EUR: priceInCurrency(product, 'EUR', rates),
       },
+      // Both clocks, label *and* number: a blank label is rendered by spelling out the number
+      // (the storefront's termLabel), so sending only the free-text label left the cart and
+      // checkout showing nothing for every product whose admin left the label empty.
       warranty: product.warranty || '',
+      warrantyDays: product.warrantyDays || 0,
       validity: product.validity || '',
+      durationDays: product.durationDays || 0,
       stock: product.stock,
       inStock: product.stock >= item.quantity,
       isActive: product.isActive,
