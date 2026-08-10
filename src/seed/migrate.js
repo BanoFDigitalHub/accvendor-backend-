@@ -31,7 +31,17 @@ async function migrateProducts() {
     await product.save();
     count += 1;
   }
-  return count;
+
+  // `warrantyDays` drives how long a delivered order may still be cancelled. Products predating
+  // it get 0 — "no warranty window configured" — which leaves the cancellation window
+  // unrestricted, exactly the behaviour they had before the field existed. Written explicitly
+  // rather than left to the schema default, because defaults only apply on insert.
+  const warranty = await Product.updateMany(
+    { warrantyDays: { $exists: false } },
+    { $set: { warrantyDays: 0 } }
+  );
+
+  return { media: count, warranty: warranty.modifiedCount || 0 };
 }
 
 async function migrateOrders() {
@@ -144,7 +154,9 @@ async function run() {
   console.log('[migrate] starting');
 
   const products = await migrateProducts();
-  console.log(`[migrate] products: ${products} backfilled with media[]`);
+  console.log(
+    `[migrate] products: ${products.media} backfilled with media[], ${products.warranty} stamped warrantyDays:0`
+  );
 
   const orders = await migrateOrders();
   console.log(

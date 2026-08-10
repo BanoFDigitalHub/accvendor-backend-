@@ -145,6 +145,48 @@ async function run() {
     await call(both, '/admin/auth/logout', { method: 'POST' });
     assert((await call(both, '/admin/dashboard/stats')).status === 401, 'admin logout ends the admin session');
     assert((await call(both, '/auth/me')).status === 200, 'admin logout leaves the site session untouched');
+
+    // --- session cap: the two shells must not evict each other -------------------------
+    //
+    // The refresh-token cap used to be one global list. Storefront logins therefore pushed the
+    // admin panel's refresh token out of it, and an evicted token is indistinguishable from a
+    // stolen one — so the next admin refresh was read as theft, revoked every session, and the
+    // admin was thrown out mid-edit with "Session expired, please log in again".
+    const adminOnly = jar();
+    await call(adminOnly, '/admin/auth/login', { method: 'POST', body: creds });
+    assert((await call(adminOnly, '/admin/dashboard/stats')).status === 200, 'admin session established');
+
+    // Comfortably more storefront logins than the per-shell cap.
+    for (let i = 0; i < 8; i += 1) {
+      await call(jar(), '/auth/login', { method: 'POST', body: creds });
+    }
+
+    assert(
+      (await call(adminOnly, '/admin/auth/refresh', { method: 'POST' })).status === 200,
+      'the admin session still refreshes after many storefront logins (no cross-shell eviction)'
+    );
+    assert(
+      (await call(adminOnly, '/admin/dashboard/stats')).status === 200,
+      'the admin session survives storefront logins filling the session list'
+    );
+
+    // A session that simply no longer exists costs only itself. Logging one device out and
+    // replaying its refresh token must not revoke the *other* devices, which is what a
+    // tokenVersion bump would do.
+    const deviceA = jar();
+    const deviceB = jar();
+    await call(deviceA, '/auth/login', { method: 'POST', body: creds });
+    await call(deviceB, '/auth/login', { method: 'POST', body: creds });
+    const staleRefresh = deviceA.names().includes('refreshToken');
+    assert(staleRefresh, 'device A holds a refresh token');
+    await call(deviceA, '/auth/logout', { method: 'POST' });
+
+    const replayed = await call(deviceA, '/auth/refresh', { method: 'POST' });
+    assert(replayed.status === 401, 'a logged-out session cannot refresh');
+    assert(
+      (await call(deviceB, '/auth/me')).status === 200,
+      'one device logging out leaves the other device signed in'
+    );
   } finally {
     server.close();
     const mongoose = require('mongoose');

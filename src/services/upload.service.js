@@ -63,6 +63,26 @@ function signCredentialFileUpload(adminId) {
 }
 
 /**
+ * Imports an image the admin supplied as a URL into Cloudinary, so it becomes an asset we own.
+ *
+ * Cloudinary does the fetching — the URL is handed to its API and never requested by this
+ * server, so this cannot be turned into an SSRF probe of our own network. Admin-only.
+ *
+ * Importing rather than merely storing the link is what makes "add by URL" hold up: a linked
+ * third-party image can start 403ing on hotlink protection, move, or vanish, and we would have
+ * no publicId to clean up either. Callers fall back to storing the plain URL when this fails,
+ * so an un-fetchable source still degrades to the old behaviour instead of blocking the edit.
+ */
+async function importFromUrl(url, folderPrefix, userId) {
+  if (!isConfigured) throw new Error('Cloudinary is not configured');
+  const result = await cloudinary.uploader.upload(url, {
+    folder: `accvendor/${folderPrefix}/${userId}`,
+    resource_type: 'image',
+  });
+  return { url: result.secure_url, publicId: result.public_id };
+}
+
+/**
  * Deletes an asset we own. Only ever called with a publicId the server itself recorded when
  * the asset was attached (product media, ad banner, payment QR) — a caller-supplied id is
  * never trusted, so an admin can't be tricked into destroying an unrelated asset.
@@ -93,6 +113,22 @@ function optimizedUrl(url, { width = 800 } = {}) {
   return url.replace('/upload/', `/upload/f_auto,q_auto,c_limit,w_${width}/`);
 }
 
+// Widths offered to the browser for a product image. A card in a four-up grid needs nowhere
+// near the detail page's hero, and shipping one size for both wastes most of the bytes on the
+// listing — which is the page a shopper hits first.
+const IMAGE_WIDTHS = [320, 640, 960, 1280];
+
+/**
+ * A `srcset` string for a product image, so the browser downloads the size it will actually
+ * paint. Returns null for anything we can't transform (a pasted third-party URL), in which case
+ * the caller just uses the plain `src` and nothing breaks.
+ */
+function srcSetFor(url) {
+  if (!url || !/res\.cloudinary\.com/.test(url) || !url.includes('/upload/')) return null;
+  if (/\/upload\/[^/]*[fq]_/.test(url)) return null; // already transformed — leave it alone
+  return IMAGE_WIDTHS.map((w) => `${optimizedUrl(url, { width: w })} ${w}w`).join(', ');
+}
+
 module.exports = {
   isConfigured,
   signPaymentProofUpload,
@@ -102,5 +138,7 @@ module.exports = {
   signPaymentQrUpload,
   signCredentialFileUpload,
   destroyAsset,
+  importFromUrl,
   optimizedUrl,
+  srcSetFor,
 };

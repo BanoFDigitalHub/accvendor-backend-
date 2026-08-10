@@ -27,6 +27,9 @@ const orderItemSchema = new mongoose.Schema(
     unitPricePKR: { type: Number, default: null, min: 0 }, // same amount in base PKR, for reporting
     quantity: { type: Number, required: true, min: 1, default: 1 },
     durationDays: { type: Number, required: true, min: 1 },
+    // Frozen at purchase alongside the price: shortening a product's warranty later must not
+    // retroactively close the window on someone who already bought it.
+    warrantyDays: { type: Number, default: 0, min: 0 },
     warranty: { type: String, default: '' },
     validity: { type: String, default: '' },
     expiresAt: { type: Date, default: null },
@@ -118,6 +121,17 @@ const orderSchema = new mongoose.Schema(
     credentialText: { type: String, default: null },
     expiresAt: { type: Date, default: null, index: true },
     expiryReminderSentAt: { type: Date, default: null },
+
+    // --- Warranty window -----------------------------------------------------------
+    // The clock starts on delivery, not on purchase — a buyer waiting on an admin to hand over
+    // credentials must not burn warranty days doing it. `warrantyUntil` is stamped once, at
+    // delivery, from the longest warranty among the order's items.
+    //
+    // `null` means no warranty window applies (nothing in the order carried warrantyDays, or the
+    // order predates the field) and the cancellation window is then unrestricted — every order
+    // placed before this existed keeps behaving exactly as it did.
+    deliveredAt: { type: Date, default: null },
+    warrantyUntil: { type: Date, default: null },
 
     idempotencyKey: { type: String, required: true },
 

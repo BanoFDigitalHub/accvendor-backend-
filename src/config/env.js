@@ -79,7 +79,7 @@ const env = {
   // Public URL of the logo used inside transactional emails. Mail clients cannot resolve a
   // local filesystem path or a relative URL, so this has to be an absolute, publicly reachable
   // image or the logo silently renders as a broken image for every recipient.
-  emailLogoUrl: process.env.EMAIL_LOGO_URL || 'https://accvendor.vercel.app/logo.jpeg',
+  emailLogoUrl: process.env.EMAIL_LOGO_URL || 'https://accvendor.vercel.app/logo.png',
 
   otpExpiresMinutes: parseInt(process.env.OTP_EXPIRES_MINUTES, 10) || 10,
   // Deliberately short (5s): long enough to collapse a burst of double-clicks into one send,

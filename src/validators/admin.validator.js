@@ -43,6 +43,8 @@ const productCreateSchema = z.object({
   eurSalePrice: z.coerce.number().min(0).nullable().optional(),
 
   durationDays: z.coerce.number().int().min(1),
+  // 0 = no warranty window; capped at 10 years so a typo can't create an effectively eternal one.
+  warrantyDays: z.coerce.number().int().min(0).max(3650).optional().default(0),
   warranty: z.string().trim().max(100).optional().default(''),
   validity: z.string().trim().max(100).optional().default(''),
   stock: z.coerce.number().int().min(0),

@@ -22,7 +22,7 @@ const SITE_URL = env.clientUrl.replace(/\/$/, '');
 // Must be an absolute, publicly reachable https URL: a mail client cannot resolve a local
 // filesystem path or a relative URL, and a broken logo is what every recipient would see.
 // Defaults to the deployed storefront's copy; override with EMAIL_LOGO_URL.
-const LOGO_URL = env.emailLogoUrl || `${SITE_URL}/logo.jpeg`;
+const LOGO_URL = env.emailLogoUrl || `${SITE_URL}/logo.png`;
 
 // Email clients strip <style> unpredictably, so every rule is inline. Kept as short helpers
 // rather than repeated literals so a brand tweak is a one-line change.
@@ -333,12 +333,15 @@ function orderDeliveredEmail(order, downloadUrl) {
 }
 
 function cancelRequestRejectedEmail(order) {
+  // The reason moved into the cancelRequest sub-document; the flat name is still accepted so a
+  // pre-migration order (or an already-serialized one) renders the same.
+  const rejectionReason = order.cancelRequest?.rejectionReason || order.cancelRejectionReason;
   const body = `
     ${p(`We reviewed your cancellation request for order ${strong(`${orderRef(order)}`)} and weren't able to approve it — your subscription remains active.`)}
     ${
-      order.cancelRejectionReason
+      rejectionReason
         ? panel(
-            `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(order.cancelRejectionReason)}</p>`
+            `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(rejectionReason)}</p>`
           )
         : ''
     }
@@ -411,14 +414,14 @@ function paymentReminderEmail(order) {
 
 function unpaidOrderExpiredEmail(order) {
   const body = `
-    ${p(`Order ${strong(orderRef(order))} expired because payment wasn't completed in time, so we've released the items back into stock.`)}
+    ${p(`Order ${strong(orderRef(order))} was cancelled because payment wasn't completed in time, so we've released the items back into stock.`)}
     ${orderSummary(order)}
     ${p('Nothing was charged. If you still want these items, you can place the order again in a couple of clicks.')}
     ${button(`${SITE_URL}/dashboard?reorder=${encodeURIComponent(orderRef(order))}`, 'Order again')}
   `;
-  return baseTemplate('Order expired', body, {
-    preheader: `${orderRef(order)} expired — payment was not completed`,
-    badge: pill('Expired', 'bad'),
+  return baseTemplate('Order cancelled', body, {
+    preheader: `${orderRef(order)} cancelled — payment was not completed`,
+    badge: pill('Cancelled', 'bad'),
     footerNote: 'You were not charged for this order.',
   });
 }

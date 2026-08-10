@@ -18,6 +18,24 @@ function toAdminProduct(p, rates) {
   return { ...p, prices: allPrices(p, rates) };
 }
 
+/**
+ * Re-reads a just-saved product in exactly the shape `listProducts` returns — populated category
+ * and resolved `prices` block.
+ *
+ * A create/update used to answer with the bare Mongoose document, which carries neither. The
+ * admin table and the edit form both read `prices` and `category.name`, so the row rendered
+ * straight from a save response disagreed with the same row after a refresh — the edit looked
+ * like it hadn't applied. Answering with the canonical shape means what the client renders after
+ * saving is what the server actually stored.
+ */
+async function readAdminProduct(id) {
+  const [saved, rates] = await Promise.all([
+    Product.findById(id).populate('category', 'name slug').lean(),
+    getRates(),
+  ]);
+  return saved ? toAdminProduct(saved, rates) : null;
+}
+
 async function listProducts({ page, limit, search }) {
   const filter = {};
   if (search) {
@@ -48,14 +66,22 @@ async function listProducts({ page, limit, search }) {
  * `images: [url]`. Both are accepted and collapsed onto `media`, which the model mirrors back
  * onto `images` — so an image edit can never half-apply by writing one field and not the other.
  */
-function normalizeMedia(data) {
+function normalizeMedia(data, existing = []) {
+  // What we already own, keyed by URL. A caller that sends back a URL we uploaded — but without
+  // its publicId — keeps that ownership rather than silently dropping it: otherwise editing a
+  // product's *price* would strip every image's publicId, and the assets could never be cleaned
+  // up again. An explicitly supplied publicId always wins over the remembered one.
+  const ownedByUrl = new Map((existing || []).filter((m) => m?.publicId).map((m) => [m.url, m.publicId]));
+  const withOwner = (url, publicId) => {
+    const trimmed = String(url).trim();
+    return { url: trimmed, publicId: publicId || ownedByUrl.get(trimmed) || null };
+  };
+
   if (Array.isArray(data.media)) {
-    return data.media
-      .filter((m) => m && m.url)
-      .map((m) => ({ url: String(m.url).trim(), publicId: m.publicId || null }));
+    return data.media.filter((m) => m && m.url).map((m) => withOwner(m.url, m.publicId));
   }
   if (Array.isArray(data.images)) {
-    return data.images.filter(Boolean).map((url) => ({ url: String(url).trim(), publicId: null }));
+    return data.images.filter(Boolean).map((url) => withOwner(url, null));
   }
   return null;
 }
@@ -76,7 +102,7 @@ async function createProduct(data) {
   try {
     const product = new Product(payload);
     await product.save();
-    return product;
+    return readAdminProduct(product._id);
   } catch (err) {
     if (err.code === 11000) throw new ApiError(409, 'A product with this slug already exists');
     throw err;
@@ -96,7 +122,7 @@ async function updateProduct(id, data) {
   const product = await Product.findById(id);
   if (!product) throw new ApiError(404, 'Product not found');
 
-  const media = normalizeMedia(data);
+  const media = normalizeMedia(data, product.media);
   const scalars = { ...data };
   delete scalars.media;
   delete scalars.images;
@@ -128,7 +154,7 @@ async function updateProduct(id, data) {
   // After the database is durable, never before: a failed cleanup must not roll back the edit.
   await Promise.all(orphanedPublicIds.map(destroyAsset));
 
-  return product;
+  return readAdminProduct(product._id);
 }
 
 async function deleteProduct(id) {

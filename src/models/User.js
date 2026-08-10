@@ -55,8 +55,18 @@ const userSchema = new mongoose.Schema(
     totpSecret: { type: String, default: null },
     totpEnabled: { type: Boolean, default: false },
 
-    // Refresh token rotation (max 5 concurrent devices)
+    // Refresh token rotation (max 5 concurrent sessions *per app-shell* — see auth.service.js)
     refreshTokens: { type: [refreshTokenSchema], default: [] },
+
+    // Short memory of refresh tokens that have already been rotated away.
+    //
+    // Without it, "this jti is not in refreshTokens" has two very different causes that look
+    // identical: the token was genuinely replayed (theft — revoke everything), or it was simply
+    // evicted by the per-scope cap / a logout (benign — just ask for a fresh login). Treating
+    // the benign case as theft is what logged admins out mid-edit with "Session expired".
+    //
+    // Only a jti recorded here proves a replay. Capped and pruned in auth.service.js.
+    rotatedJtis: { type: [String], default: [] },
   },
   { timestamps: true }
 );

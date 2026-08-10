@@ -20,7 +20,11 @@ const {
   verify2faPendingToken,
 } = require('../utils/token.util');
 
+// Concurrent sessions kept per app-shell (site and admin are capped independently).
 const MAX_REFRESH_TOKENS_PER_USER = 5;
+// How many rotated token ids to remember for replay detection. Comfortably larger than the
+// session cap, so a replay is still caught well after the token stopped being active.
+const MAX_ROTATED_JTIS = 50;
 
 function normalizeAnswer(answer) {
   return answer.trim().toLowerCase();
@@ -215,9 +219,20 @@ async function resendOtp({ email }) {
 async function issueTokens(user, { userAgent, ip } = {}, scope = SCOPE_SITE) {
   const jti = newJti();
   user.refreshTokens.push({ jti, expiresAt: refreshExpiryDate(), userAgent, ip, scope });
-  if (user.refreshTokens.length > MAX_REFRESH_TOKENS_PER_USER) {
-    user.refreshTokens = user.refreshTokens.slice(-MAX_REFRESH_TOKENS_PER_USER);
+
+  // The cap is per app-shell, not global. One array holds both shells' sessions, so a global
+  // cap meant storefront logins could evict the admin panel's still-valid refresh token — and
+  // an evicted token is indistinguishable from a stolen one on its next use. Trimming within a
+  // scope keeps the two shells from ever pushing each other out.
+  const kept = [];
+  for (const s of [SCOPE_SITE, SCOPE_ADMIN]) {
+    const forScope = user.refreshTokens.filter((t) => (t.scope || SCOPE_SITE) === s);
+    kept.push(...forScope.slice(-MAX_REFRESH_TOKENS_PER_USER));
   }
+  // Expired entries are dead weight that would otherwise occupy a slot until evicted.
+  const now = new Date();
+  user.refreshTokens = kept.filter((t) => !t.expiresAt || t.expiresAt > now || t.jti === jti);
+
   await user.save();
 
   const accessToken = signAccessToken(user, scope);
@@ -339,21 +354,41 @@ async function refresh(refreshToken, meta, scope = SCOPE_SITE) {
   // A refresh token from the other app-shell cannot be upgraded into a session here.
   if ((payload.scope || SCOPE_SITE) !== scope) throw new ApiError(401, 'Invalid refresh token');
 
-  const user = await User.findById(payload.sub);
-  if (!user) throw new ApiError(401, 'Invalid refresh token');
+  // Claim the token atomically: the $pull only matches while the jti is still present, so of
+  // two refreshes racing on the same token exactly one can win. The previous read-modify-save
+  // let both read the same array and the later save resurrect what the earlier one rotated
+  // away — after which a perfectly legitimate token looked stolen on its next use.
+  //
+  // The used jti is remembered in `rotatedJtis`, which is what makes a genuine replay provable
+  // below rather than merely suspected.
+  const user = await User.findOneAndUpdate(
+    { _id: payload.sub, 'refreshTokens.jti': payload.jti },
+    {
+      $pull: { refreshTokens: { jti: payload.jti } },
+      $push: { rotatedJtis: { $each: [payload.jti], $slice: -MAX_ROTATED_JTIS } },
+    },
+    { returnDocument: 'after' }
+  );
 
-  const tokenEntry = user.refreshTokens.find((t) => t.jti === payload.jti);
-  if (!tokenEntry) {
-    // Reuse of a rotated/unknown token: possible theft. Revoke all sessions.
-    user.refreshTokens = [];
-    user.tokenVersion += 1;
-    await user.save();
-    throw new ApiError(401, 'Refresh token reuse detected, all sessions revoked. Please log in again');
+  if (!user) {
+    // The jti was not an active session. Two very different reasons, and only one is an attack.
+    const owner = await User.findById(payload.sub);
+    if (!owner) throw new ApiError(401, 'Invalid refresh token');
+
+    if (owner.rotatedJtis?.includes(payload.jti)) {
+      // Proven replay of a token we ourselves rotated away: assume theft, revoke everything.
+      owner.refreshTokens = [];
+      owner.rotatedJtis = [];
+      owner.tokenVersion += 1;
+      await owner.save();
+      throw new ApiError(401, 'Refresh token reuse detected, all sessions revoked. Please log in again');
+    }
+
+    // Otherwise the session simply no longer exists — logged out, expired, or evicted by the
+    // cap. That is ordinary, so it costs this one session and nothing else: no tokenVersion
+    // bump, and every other device the user is signed in on stays alive.
+    throw new ApiError(401, 'Your session has ended, please log in again');
   }
-
-  // Rotate: remove used token, issue a new one.
-  user.refreshTokens = user.refreshTokens.filter((t) => t.jti !== payload.jti);
-  await user.save();
 
   if (scope === SCOPE_ADMIN && user.role !== 'admin') throw new ApiError(403, 'Insufficient permissions');
 

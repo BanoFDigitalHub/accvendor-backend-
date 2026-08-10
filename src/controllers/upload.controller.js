@@ -45,6 +45,25 @@ const signCredentialFile = asyncHandler(async (req, res) => {
   apiResponse(res, 200, 'Upload signature generated', uploadService.signCredentialFileUpload(req.user._id));
 });
 
+/**
+ * Pulls an admin-supplied image URL into Cloudinary so it becomes an asset we own and manage.
+ *
+ * Answers 422 rather than 500 when Cloudinary cannot fetch the source (hotlink protection, a
+ * page URL instead of an image, a dead link). That is a fact about the URL the admin pasted,
+ * not a server fault, and the client uses it to fall back to storing the plain link.
+ */
+const importImageFromUrl = asyncHandler(async (req, res) => {
+  assertConfigured('importing images by URL');
+  const { url, kind } = req.body;
+  const folder = kind === 'payment-qr' ? 'payment-qr' : 'product-images';
+  try {
+    const asset = await uploadService.importFromUrl(url, folder, req.user._id);
+    apiResponse(res, 200, 'Image imported', asset);
+  } catch (err) {
+    throw new ApiError(422, `Could not fetch that image URL: ${err.message}`);
+  }
+});
+
 module.exports = {
   signPaymentProof,
   signSupportAttachment,
@@ -52,4 +71,5 @@ module.exports = {
   signAdImage,
   signPaymentQr,
   signCredentialFile,
+  importImageFromUrl,
 };

@@ -79,6 +79,82 @@ function credentialDownloadUrl(orderId, userId) {
   return `${env.apiUrl}/orders/${orderId}/credential?token=${token}`;
 }
 
+// --- Warranty & serialization -------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The warranty deadline for an order, counted from `from` (its delivery moment).
+ *
+ * An order is one window, not one per line: the longest warranty among its items governs, so a
+ * bundle is never cut short by its least-protected item. Returns null when nothing in the order
+ * carries a warranty, which downstream means "no window applies" rather than "expired".
+ */
+function warrantyDeadline(items, from) {
+  const longest = Math.max(0, ...(items || []).map((i) => Number(i.warrantyDays) || 0));
+  return longest > 0 ? new Date(new Date(from).getTime() + longest * DAY_MS) : null;
+}
+
+/**
+ * Whether the buyer may still open a cancellation request, and if not, why.
+ *
+ * The rule the storefront renders and the rule the API enforces are the *same function* — the
+ * disabled button and the 400 can never disagree about whether a window is still open.
+ */
+function cancellationState(order) {
+  const status = order?.cancelRequest?.status || 'none';
+  if (status === 'pending') return { allowed: false, reason: 'A cancellation request is already pending for this order.' };
+  if (status === 'approved') return { allowed: false, reason: 'This order has already been cancelled.' };
+  if (status === 'rejected') {
+    return {
+      allowed: false,
+      reason:
+        'A cancellation request for this order was already reviewed and declined. Please open a support ticket if you need further help.',
+    };
+  }
+  if (order?.status !== 'delivered') {
+    return { allowed: false, reason: 'Only active (delivered) subscriptions can be cancelled.' };
+  }
+  // Validity is untouched here on purpose: an account can still be working while its warranty has
+  // run out. Only the warranty window governs cancellation.
+  if (order.warrantyUntil && new Date(order.warrantyUntil).getTime() <= Date.now()) {
+    const ended = new Date(order.warrantyUntil).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+    return { allowed: false, reason: `The warranty on this order ended on ${ended}, so it can no longer be cancelled.` };
+  }
+  return { allowed: true, reason: null };
+}
+
+/**
+ * The single API shape for an order.
+ *
+ * Every read in this service goes through `.lean()` for speed, and a lean read carries no
+ * virtuals — so `cancelRequested` silently vanished from every list and detail payload, and the
+ * storefront's "Cancellation requested" state never rendered. Rather than dropping `.lean()`,
+ * the derived fields are computed here, once, for both lean objects and hydrated documents.
+ *
+ * `cancelRejectionReason` is the flattened alias of `cancelRequest.rejectionReason`, which is
+ * where the old top-level field moved in the cancel-request migration; clients still read the
+ * flat name.
+ */
+function serializeOrder(order) {
+  if (!order) return order;
+  const plain = typeof order.toObject === 'function' ? order.toObject() : order;
+  const cancel = cancellationState(plain);
+  return {
+    ...plain,
+    cancelRequestStatus: plain.cancelRequest?.status || 'none',
+    cancelRequested: plain.cancelRequest?.status === 'pending',
+    cancelRejectionReason: plain.cancelRequest?.rejectionReason || null,
+    canRequestCancellation: cancel.allowed,
+    cancelBlockedReason: cancel.reason,
+    warrantyUntil: plain.warrantyUntil || null,
+  };
+}
+
 // --- Creation ----------------------------------------------------------------------------
 
 /**
@@ -113,6 +189,7 @@ async function buildOrderItems(lines, currency, rates) {
       unitPricePKR: priceInCurrency(product, 'PKR', rates).effectivePrice,
       quantity: line.quantity,
       durationDays: product.durationDays,
+      warrantyDays: product.warrantyDays || 0,
       warranty: product.warranty || '',
       validity: product.validity || '',
     });
@@ -130,7 +207,7 @@ async function createOrder(userId, { paymentMethodId, couponCode, idempotencyKey
   // Idempotency is enforced by the unique (user, idempotencyKey) index; this read just turns
   // the common case (a double-clicked Place Order) into a fast, successful replay.
   const existing = await Order.findOne({ user: userId, idempotencyKey });
-  if (existing) return existing;
+  if (existing) return serializeOrder(existing);
 
   const rates = await getRates();
   const cur = isCurrency(currency) ? currency : rates.defaultCurrency || DEFAULT_CURRENCY;
@@ -238,7 +315,7 @@ async function createOrder(userId, { paymentMethodId, couponCode, idempotencyKey
       adminTitle: 'New order placed',
     });
 
-    return order;
+    return serializeOrder(order);
   } catch (err) {
     // Roll back any stock we already decremented before the failure.
     for (const item of decremented) {
@@ -272,43 +349,61 @@ async function submitProof(userId, orderId, proofUrl, transactionId) {
     category: 'payment',
   });
 
-  return order;
+  return serializeOrder(order);
 }
 
 /**
  * Opens a cancellation request. Exactly one is allowed per order, ever: any status other than
  * 'none' is terminal for the customer, including a rejection — otherwise a declined request
- * would hand them an unlimited retry loop.
+ * would hand them an unlimited retry loop. Past the warranty deadline nothing is allowed at all.
+ *
+ * The eligibility rules live in `cancellationState` so this check and the flag the storefront
+ * disables its button from are one implementation — a client that ignores the disabled button
+ * hits the exact same rule here.
  */
 async function requestCancellation(userId, orderId, reason) {
   const order = await findOwnedOrder(userId, orderId);
-  if (order.status !== 'delivered') {
-    throw new ApiError(400, 'Only active (delivered) subscriptions can be cancelled');
+
+  const { allowed, reason: blocked } = cancellationState(order);
+  if (!allowed) {
+    // 409 for "you already used your one request", 400 for everything else (wrong status, or a
+    // warranty window that has closed).
+    const alreadyRequested = ['pending', 'approved', 'rejected'].includes(order.cancelRequest?.status);
+    throw new ApiError(alreadyRequested ? 409 : 400, blocked);
   }
 
-  const current = order.cancelRequest?.status || 'none';
-  if (current === 'pending') throw new ApiError(409, 'A cancellation request is already pending for this order');
-  if (current === 'approved') throw new ApiError(409, 'This order has already been cancelled');
-  if (current === 'rejected') {
-    throw new ApiError(
-      409,
-      'A cancellation request for this order was already reviewed and declined. Please open a support ticket if you need further help.'
-    );
+  // Claimed atomically. The check above is a read-then-write, so a double-clicked button could
+  // have two requests both pass it — one request is still all that ends up stored (it is a
+  // single sub-document, not a collection), but each would have gone on to notify the admin,
+  // producing duplicate alerts for one customer action. The filter only matches while the
+  // request is still unopened, so exactly one caller proceeds.
+  const claimed = await Order.findOneAndUpdate(
+    {
+      ...ownedOrderQuery(userId, orderId),
+      status: 'delivered',
+      $or: [{ 'cancelRequest.status': 'none' }, { 'cancelRequest.status': { $exists: false } }],
+    },
+    { $set: { cancelRequest: { status: 'pending', reason: reason || null, requestedAt: new Date() } } },
+    { returnDocument: 'after' }
+  );
+
+  if (!claimed) {
+    // Lost the race, or the order moved underneath us. Re-read to report the real reason.
+    const current = await Order.findOne(ownedOrderQuery(userId, orderId));
+    const state = cancellationState(current);
+    throw new ApiError(409, state.reason || 'A cancellation request is already pending for this order.');
   }
 
-  order.cancelRequest = { status: 'pending', reason: reason || null, requestedAt: new Date() };
-  await order.save();
-
-  await notifyOrder(order, {
+  await notifyOrder(claimed, {
     subject: null,
     socketEvent: 'order:cancelRequested',
-    userTitle: `Cancellation requested for ${order.orderNumber}`,
+    userTitle: `Cancellation requested for ${claimed.orderNumber}`,
     userBody: 'Our team will review your request.',
     adminTitle: 'Cancellation requested',
     category: 'cancellation',
   });
 
-  return order;
+  return serializeOrder(claimed);
 }
 
 // --- Admin-driven transitions ---------------------------------------------------------------
@@ -329,7 +424,7 @@ async function markUnderReview(orderId) {
     link: orderLink(order),
     meta: { orderId: String(order._id), orderNumber: order.orderNumber, status: order.status },
   });
-  return order;
+  return serializeOrder(order);
 }
 
 async function approveOrder(orderId) {
@@ -351,7 +446,7 @@ async function approveOrder(orderId) {
     category: 'payment',
   });
 
-  return order;
+  return serializeOrder(order);
 }
 
 async function rejectOrder(orderId, reason) {
@@ -373,7 +468,7 @@ async function rejectOrder(orderId, reason) {
     category: 'payment',
   });
 
-  return order;
+  return serializeOrder(order);
 }
 
 async function deliverOrder(orderId, { credentialFileUrl, credentialText, expiresAt }) {
@@ -386,6 +481,10 @@ async function deliverOrder(orderId, { credentialFileUrl, credentialText, expire
   order.credentialText = credentialText || null;
   order.expiresAt = expiresAt || null;
   order.status = 'delivered';
+  // The warranty clock starts here, and is stamped once. Recomputing it on every read would let
+  // a later edit to the product's warranty move a deadline the buyer was already given.
+  order.deliveredAt = new Date();
+  order.warrantyUntil = warrantyDeadline(order.items, order.deliveredAt);
   await order.save();
 
   const downloadUrl = credentialFileUrl ? credentialDownloadUrl(order._id, order.user) : null;
@@ -397,7 +496,7 @@ async function deliverOrder(orderId, { credentialFileUrl, credentialText, expire
     userBody: 'Your account details are ready in your dashboard.',
   });
 
-  return order;
+  return serializeOrder(order);
 }
 
 async function cancelOrder(orderId, adminId) {
@@ -421,7 +520,7 @@ async function cancelOrder(orderId, adminId) {
     category: 'cancellation',
   });
 
-  return order;
+  return serializeOrder(order);
 }
 
 async function rejectCancelRequest(orderId, reason, adminId) {
@@ -445,7 +544,7 @@ async function rejectCancelRequest(orderId, reason, adminId) {
     category: 'cancellation',
   });
 
-  return order;
+  return serializeOrder(order);
 }
 
 /** Admin-triggered nudge for an order that is still awaiting payment. */
@@ -477,7 +576,7 @@ async function sendPaymentReminder(orderId) {
     meta: { orderId: String(order._id), orderNumber: order.orderNumber },
   });
 
-  return order;
+  return serializeOrder(order);
 }
 
 // --- Reads ---------------------------------------------------------------------------------
@@ -519,13 +618,19 @@ async function getMyOrders(userId, { page, limit, status, search }) {
     Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Order.countDocuments(filter),
   ]);
-  return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+  return {
+    items: items.map(serializeOrder),
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
 }
 
 async function getOrderById(userId, idOrNumber) {
   const order = await Order.findOne(ownedOrderQuery(userId, idOrNumber)).lean();
   if (!order) throw new ApiError(404, 'Order not found');
-  return order;
+  return serializeOrder(order);
 }
 
 async function adminListOrders({ page, limit, status, search }) {
@@ -538,7 +643,13 @@ async function adminListOrders({ page, limit, status, search }) {
     Order.find(filter).populate('user', 'email name').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Order.countDocuments(filter),
   ]);
-  return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+  return {
+    items: items.map(serializeOrder),
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
 }
 
 async function adminListCancelRequests({ page, limit }) {
@@ -548,13 +659,19 @@ async function adminListCancelRequests({ page, limit }) {
     Order.find(filter).populate('user', 'email name').sort({ updatedAt: -1 }).skip(skip).limit(limit).lean(),
     Order.countDocuments(filter),
   ]);
-  return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+  return {
+    items: items.map(serializeOrder),
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
 }
 
 async function adminGetOrder(orderId) {
   const order = await Order.findById(orderId).populate('user', 'email name').lean();
   if (!order) throw new ApiError(404, 'Order not found');
-  return order;
+  return serializeOrder(order);
 }
 
 async function getCredentialDownloadUrl(userId, idOrNumber) {
@@ -588,7 +705,11 @@ async function expireUnpaidOrders() {
   const due = await Order.find({ status: 'pending_payment', paymentDueAt: { $ne: null, $lte: now } });
 
   for (const order of due) {
-    order.status = 'expired';
+    // Cancelled, not expired. "Expired" is what a *delivered* subscription becomes when its
+    // validity runs out — reusing it for an order that was never paid for put two unrelated
+    // outcomes under one label, and the buyer saw "Expired" for something they never received.
+    // `expiredReason: 'unpaid'` stays as the audit trail for why it was cancelled.
+    order.status = 'cancelled';
     order.expiredReason = 'unpaid';
     order.paymentDueAt = null;
     await order.save();
@@ -599,12 +720,15 @@ async function expireUnpaidOrders() {
     }
 
     await notifyOrder(order, {
-      subject: `Accvendor — order ${order.orderNumber} expired`,
+      subject: `Accvendor — order ${order.orderNumber} cancelled`,
       html: unpaidOrderExpiredEmail(order),
       socketEvent: 'order:statusChanged',
-      userTitle: `Order ${order.orderNumber} expired`,
+      userTitle: `Order ${order.orderNumber} cancelled`,
       userBody: 'Payment was not completed in time. You can place the order again.',
       category: 'payment',
+      // The admin side wants to see this too — an order the shop lost to a lapsed payment
+      // window is a signal, not just a customer-facing event.
+      adminTitle: 'Unpaid order cancelled',
     });
   }
   return due.length;

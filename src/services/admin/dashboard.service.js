@@ -10,10 +10,15 @@ async function getStats() {
       Order.countDocuments({ status: { $in: ['proof_submitted', 'under_review'] } }),
       Order.countDocuments({ status: 'delivered' }),
       SupportTicket.countDocuments({ status: { $in: ['open', 'answered'] } }),
-      Order.countDocuments({ cancelRequested: true, status: 'delivered' }),
+      // The flat `cancelRequested` boolean became the cancelRequest sub-document; matching on the
+      // old name silently counted zero, so the dashboard tile never showed a pending request.
+      Order.countDocuments({ 'cancelRequest.status': 'pending', status: 'delivered' }),
       Order.aggregate([
         { $match: { status: { $in: ['approved', 'delivered', 'expired'] } } },
-        { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } },
+        // Summed via the PKR mirror, never raw `total` — orders are placed in three currencies
+        // and adding those together adds dollars to rupees. `$ifNull` covers pre-migration rows,
+        // which were all PKR-denominated anyway.
+        { $group: { _id: null, total: { $sum: { $ifNull: ['$totalPKR', '$total'] } }, count: { $sum: 1 } } },
       ]),
     ]);
 
@@ -45,7 +50,9 @@ async function getRevenueSeries(days = 30) {
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-        revenue: { $sum: '$total' },
+        // PKR mirror, same reason as the total above: a day mixing a $20 order and a Rs 5,000
+        // order cannot be summed on the raw amounts.
+        revenue: { $sum: { $ifNull: ['$totalPKR', '$total'] } },
         orders: { $sum: 1 },
       },
     },

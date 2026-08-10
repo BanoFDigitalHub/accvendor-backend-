@@ -3,7 +3,7 @@ const Category = require('../models/Category');
 const ApiError = require('../utils/ApiError');
 const { getRates } = require('./settings.service');
 const { allPrices, priceInCurrency, DEFAULT_CURRENCY } = require('../utils/money');
-const { optimizedUrl } = require('./upload.service');
+const { optimizedUrl, srcSetFor } = require('./upload.service');
 
 /**
  * Shapes a product for public consumption.
@@ -21,6 +21,10 @@ function toPublicProduct(p, rates) {
     slug: p.slug,
     description: p.description,
     images: (p.images || []).map((url) => optimizedUrl(url)),
+    // Parallel array of `srcset` strings (null where the image isn't a Cloudinary asset we can
+    // transform), so the storefront can hand the browser a size that suits the slot instead of
+    // always downloading the 800px one.
+    imageSrcSets: (p.images || []).map((url) => srcSetFor(url)),
     tags: p.tags || [],
     category: p.category,
 
@@ -32,6 +36,9 @@ function toPublicProduct(p, rates) {
     prices,
 
     durationDays: p.durationDays,
+    // Validity (how long the account works) and warranty (how long it can still be cancelled)
+    // are independent — each has a numeric driver and an optional admin-written display label.
+    warrantyDays: p.warrantyDays || 0,
     warranty: p.warranty || '',
     validity: p.validity || '',
 

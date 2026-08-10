@@ -176,6 +176,10 @@ async function seedCategoriesAndProducts() {
       price: p.price,
       salePrice: p.salePrice,
       durationDays: p.durationDays,
+      // A 7-day warranty on every seeded product, independent of its validity, so the
+      // cancellation window has something real to enforce in a fresh environment.
+      warrantyDays: p.warrantyDays ?? 7,
+      warranty: p.warranty ?? '7 Days Replacement Warranty',
       stock: p.stock,
       isHotProduct: Boolean(p.isHotProduct),
       isActive: true,

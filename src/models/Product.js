@@ -44,7 +44,16 @@ const productSchema = new mongoose.Schema(
     // Drives order expiry — distinct from the human-readable `validity` label below.
     durationDays: { type: Number, required: true, min: 1 },
 
+    // Warranty window in days, counted from the moment the order is *delivered*. Deliberately
+    // separate from `durationDays`: validity is how long the account keeps working, warranty is
+    // how long the buyer may still ask for it to be cancelled/replaced. A 30-day subscription
+    // may carry a 7-day warranty, or none at all.
+    // 0 means "no warranty window configured" — the cancellation window is then unrestricted,
+    // which is what every product predating this field gets, so behaviour is unchanged for them.
+    warrantyDays: { type: Number, default: 0, min: 0 },
+
     // Free-text commercial terms shown on the product page, e.g. "30 Days" / "12 Months".
+    // `warranty` is the display label for `warrantyDays`; `validity` the one for `durationDays`.
     warranty: { type: String, trim: true, default: '' },
     validity: { type: String, trim: true, default: '' },
 
