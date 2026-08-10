@@ -13,6 +13,7 @@ const mongoose = require('mongoose');
 const { connectDB, disconnectDB } = require('../config/db');
 const Product = require('../models/Product');
 const { Order } = require('../models/Order');
+const { Review } = require('../models/Review');
 const Settings = require('../models/Settings');
 const User = require('../models/User');
 const { generateOrderNumber } = require('../utils/orderNumber');
@@ -149,6 +150,20 @@ async function migrateSettings() {
   return true;
 }
 
+/**
+ * Removes reviews whose product has since been deleted.
+ *
+ * Deleting a product used to leave its reviews behind. They stayed in the admin's moderation
+ * queue looking perfectly normal, but approving one changed nothing visible anywhere — the only
+ * page that could have rendered it was gone with the product. `deleteProduct` now takes them
+ * with it; this clears the ones already stranded.
+ */
+async function migrateOrphanReviews() {
+  const productIds = await Product.find({}).distinct('_id');
+  const { deletedCount } = await Review.deleteMany({ product: { $nin: productIds } });
+  return deletedCount || 0;
+}
+
 async function run() {
   await connectDB();
   console.log('[migrate] starting');
@@ -166,6 +181,9 @@ async function run() {
 
   const settings = await migrateSettings();
   console.log(`[migrate] settings: ${settings ? 'updated' : 'already current'}`);
+
+  const orphanReviews = await migrateOrphanReviews();
+  console.log(`[migrate] reviews: ${orphanReviews} orphaned (product deleted) removed`);
 
   // Build the new indexes (including the unique one on orderNumber) now that every document
   // satisfies them. syncIndexes also drops indexes the schemas no longer declare.

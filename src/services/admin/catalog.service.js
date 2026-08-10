@@ -1,4 +1,5 @@
 const Product = require('../../models/Product');
+const { Review } = require('../../models/Review');
 const Category = require('../../models/Category');
 const Coupon = require('../../models/Coupon');
 const PaymentMethod = require('../../models/PaymentMethod');
@@ -161,6 +162,12 @@ async function deleteProduct(id) {
   const product = await Product.findByIdAndDelete(id);
   if (!product) throw new ApiError(404, 'Product not found');
   await Promise.all((product.media || []).filter((m) => m.publicId).map((m) => destroyAsset(m.publicId)));
+
+  // A review belongs to its product and cannot outlive it. Left behind, the rows stayed in the
+  // admin's moderation queue pointing at nothing: approving one appeared to do nothing at all,
+  // because the only page that could ever render it no longer existed.
+  await Review.deleteMany({ product: product._id });
+
   return product;
 }
 

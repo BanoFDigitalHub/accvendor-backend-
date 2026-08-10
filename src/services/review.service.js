@@ -188,7 +188,17 @@ async function adminListReviews({ page, limit, status }) {
       .lean(),
     Review.countDocuments(filter),
   ]);
-  return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+  return {
+    // `product` populates to null when the product has since been deleted. Such a review can
+    // never appear anywhere, so the panel has to say so rather than offer an Approve button
+    // that looks like it did nothing. Deleting a product now takes its reviews with it, so
+    // this only ever fires for rows that predate that.
+    items: items.map((r) => ({ ...r, productMissing: !r.product })),
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
 }
 
 async function adminModerateReview(reviewId, status, adminId) {
