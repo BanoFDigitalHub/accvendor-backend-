@@ -76,8 +76,27 @@ app.use(xssSanitize);
 if (env.nodeEnv !== 'test') app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 app.use(globalLimiter);
 
+/**
+ * Health, plus which build is answering.
+ *
+ * The commit and service id come from Render's own injected variables, so this reports what is
+ * *actually running* rather than what anyone believes was deployed. Without it, "the deploy went
+ * through but the new routes 404" is unanswerable from the outside: a failed build leaves the
+ * previous version serving, and a deploy hook pointed at the wrong service looks identical to a
+ * successful one. Both were live possibilities here and neither could be told apart.
+ */
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'ok', data: { uptime: process.uptime() } });
+  res.json({
+    success: true,
+    message: 'ok',
+    data: {
+      uptime: process.uptime(),
+      commit: (process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7),
+      branch: process.env.RENDER_GIT_BRANCH || 'unknown',
+      service: process.env.RENDER_SERVICE_NAME || process.env.RENDER_SERVICE_ID || 'unknown',
+      node: process.version,
+    },
+  });
 });
 
 app.use('/api/auth', authRoutes);
