@@ -104,7 +104,18 @@ function panel(innerHtml, extra = '') {
 }
 
 function baseTemplate(title, bodyHtml, options = {}) {
-  const { preheader = '', footerNote = '', badge = '' } = options;
+  const {
+    preheader = '',
+    footerNote = '',
+    badge = '',
+    // One line under the title saying what this email is about, so the reader knows within a
+    // second whether it needs them. Kept to the point deliberately — a paragraph here is read
+    // as boilerplate and skipped, which defeats the purpose.
+    context = '',
+    // Why this landed in their inbox. Every email says it, because "why am I getting this?" is
+    // the question that turns a transactional email into a spam report.
+    reason = 'You are receiving this email because you have an account on accvendor.com.',
+  } = options;
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
@@ -129,12 +140,28 @@ function baseTemplate(title, bodyHtml, options = {}) {
         <td align="center" style="padding:32px 12px;">
           <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(11,27,51,0.08);">
 
+            <!-- Logo *and* wordmark, side by side. Gmail and Outlook block remote images by
+                 default for a sender the recipient has never replied to, so a logo-only header
+                 renders as an empty navy bar with a broken-image icon — the text keeps the
+                 brand present either way, and the alt text carries it inside the image slot. -->
             <tr>
-              <td align="center" style="padding:28px 32px;background:${BRAND.navy};">
-                <a href="${SITE_URL}" style="text-decoration:none;">
-                  <img src="${LOGO_URL}" width="72" height="72" alt="${BRAND.name}"
-                    style="display:block;width:72px;height:72px;border:0;border-radius:14px;" />
-                </a>
+              <td style="padding:24px 32px;background:${BRAND.navy};">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
+                  <tr>
+                    <td style="padding-right:12px;" valign="middle">
+                      <a href="${SITE_URL}" style="text-decoration:none;">
+                        <img src="${LOGO_URL}" width="44" height="44" alt="${BRAND.name}"
+                          style="display:block;width:44px;height:44px;border:0;border-radius:10px;" />
+                      </a>
+                    </td>
+                    <td valign="middle">
+                      <a href="${SITE_URL}" style="text-decoration:none;">
+                        <span style="display:block;color:#ffffff;font-family:${FONT};font-size:19px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;">${BRAND.name}</span>
+                        <span style="display:block;margin-top:2px;color:#9db4d4;font-family:${FONT};font-size:12px;line-height:1.2;">${BRAND.tagline}</span>
+                      </a>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
 
@@ -142,6 +169,11 @@ function baseTemplate(title, bodyHtml, options = {}) {
               <td style="padding:32px 32px 0;" align="center">
                 ${badge ? `<div style="margin:0 0 14px;">${badge}</div>` : ''}
                 <h1 style="margin:0;color:${BRAND.ink};font-size:23px;line-height:1.35;font-weight:700;letter-spacing:-0.3px;">${title}</h1>
+                ${
+                  context
+                    ? `<p style="margin:10px 0 0;color:${BRAND.faint};font-size:14px;line-height:1.55;">${context}</p>`
+                    : ''
+                }
               </td>
             </tr>
 
@@ -154,9 +186,24 @@ function baseTemplate(title, bodyHtml, options = {}) {
             <tr>
               <td style="padding:22px 32px 26px;background:${BRAND.wash};border-top:1px solid ${BRAND.line};text-align:center;">
                 ${footerNote ? `<p style="margin:0 0 14px;color:${BRAND.faint};font-size:13px;line-height:1.6;">${footerNote}</p>` : ''}
+
+                <!-- Every email carries the same way back to the site: a recipient who wants to
+                     act on it should never have to search for the URL, or trust a link they
+                     were sent by someone else. -->
+                <p style="margin:0 0 14px;font-size:13px;line-height:1.9;">
+                  <a href="${SITE_URL}" style="color:${BRAND.accentDark};font-weight:600;text-decoration:none;">Website</a>
+                  <span style="color:${BRAND.line};">&nbsp;|&nbsp;</span>
+                  <a href="${SITE_URL}/dashboard" style="color:${BRAND.accentDark};font-weight:600;text-decoration:none;">My orders</a>
+                  <span style="color:${BRAND.line};">&nbsp;|&nbsp;</span>
+                  <a href="${SITE_URL}/dashboard/tickets/new" style="color:${BRAND.accentDark};font-weight:600;text-decoration:none;">Support</a>
+                  <span style="color:${BRAND.line};">&nbsp;|&nbsp;</span>
+                  <a href="${SITE_URL}/terms" style="color:${BRAND.accentDark};font-weight:600;text-decoration:none;">Terms</a>
+                </p>
+
                 <p style="margin:0;color:${BRAND.ink};font-size:14px;font-weight:700;">${BRAND.name}</p>
                 <p style="margin:3px 0 0;color:${BRAND.faint};font-size:12px;">${BRAND.tagline}</p>
-                <p style="margin:14px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">
+                <p style="margin:12px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">${reason}</p>
+                <p style="margin:8px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">
                   &copy; ${env.copyrightYear} ${BRAND.name} &middot; This is an automated message, please don't reply.
                 </p>
               </td>
@@ -194,6 +241,8 @@ function otpEmail(otp, expiresMinutes) {
   return baseTemplate('Verify your email', body, {
     preheader: `${otp} is your Accvendor verification code`,
     badge: pill('Verification'),
+    context: 'Enter this code on the sign-up screen to finish creating your account.',
+    reason: 'You are receiving this because this email address was used to sign up on accvendor.com.',
     footerNote: "Didn't try to sign up? You can safely ignore this email — no account was created.",
   });
 }
@@ -210,6 +259,8 @@ function passwordResetEmail(link, expiresMinutes) {
   return baseTemplate('Reset your password', body, {
     preheader: 'Reset your Accvendor password',
     badge: pill('Security', 'warn'),
+    context: 'Use the button below to choose a new password. The link works once.',
+    reason: 'You are receiving this because a password reset was requested for this email address.',
     footerNote: "Didn't request this? Ignore this email — your password stays unchanged.",
   });
 }
@@ -260,6 +311,8 @@ function orderCreatedEmail(order) {
   return baseTemplate('Order received', body, {
     preheader: `Order ${orderRef(order)} — ${formatPrice(order.total, order.currency)}. Payment proof needed.`,
     badge: pill('Awaiting payment', 'warn'),
+    context: `Order ${orderRef(order)} is reserved for you. Send the payment and upload the proof to complete it.`,
+    reason: `You are receiving this because you placed order ${orderRef(order)} on accvendor.com.`,
   });
 }
 
@@ -271,6 +324,8 @@ function proofSubmittedEmail(order) {
   return baseTemplate('Payment proof received', body, {
     preheader: `We're reviewing your payment for order ${orderRef(order)}`,
     badge: pill('Under review', 'warn'),
+    context: 'Our team is checking your payment. You will hear from us as soon as it is verified.',
+    reason: `You are receiving this because you uploaded payment proof for order ${orderRef(order)}.`,
   });
 }
 
@@ -283,6 +338,8 @@ function orderApprovedEmail(order) {
   return baseTemplate('Payment approved', body, {
     preheader: `Payment approved for order ${orderRef(order)}`,
     badge: pill('Approved', 'good'),
+    context: 'Your payment cleared. We are preparing your order for delivery now.',
+    reason: `You are receiving this because of an update to your order ${orderRef(order)}.`,
   });
 }
 
@@ -302,6 +359,8 @@ function orderRejectedEmail(order) {
   return baseTemplate('Payment could not be verified', body, {
     preheader: `Action needed on order ${orderRef(order)}`,
     badge: pill('Not verified', 'bad'),
+    context: 'We could not match your payment. Nothing has been charged - see below for what to do next.',
+    reason: `You are receiving this because of an update to your order ${orderRef(order)}.`,
   });
 }
 
@@ -330,6 +389,8 @@ function orderDeliveredEmail(order, downloadUrl) {
   return baseTemplate('Your order is ready', body, {
     preheader: `Order ${orderRef(order)} delivered — your account details are inside`,
     badge: pill('Delivered', 'good'),
+    context: 'Your account details are below and are always available in your dashboard.',
+    reason: `You are receiving this because your order ${orderRef(order)} has been delivered.`,
   });
 }
 
@@ -352,6 +413,8 @@ function cancelRequestRejectedEmail(order) {
   return baseTemplate('Cancellation request declined', body, {
     preheader: `Update on your cancellation request for order ${orderRef(order)}`,
     badge: pill('Declined', 'bad'),
+    context: 'We reviewed your cancellation request and could not approve it. The reason is below.',
+    reason: `You are receiving this because you requested a cancellation for order ${orderRef(order)}.`,
   });
 }
 
@@ -364,6 +427,8 @@ function orderExpiredEmail(order) {
   return baseTemplate('Subscription expired', body, {
     preheader: `Order ${orderRef(order)} has expired`,
     badge: pill('Expired', 'bad'),
+    context: 'The validity period on this subscription has ended. You can reorder it any time.',
+    reason: `You are receiving this because your order ${orderRef(order)} has reached the end of its validity.`,
   });
 }
 
@@ -376,6 +441,8 @@ function expiryReminderEmail(order, daysLeft) {
   return baseTemplate('Your subscription is expiring soon', body, {
     preheader: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left on order ${orderRef(order)}`,
     badge: pill(`${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, 'warn'),
+    context: 'Renew before it lapses to keep the same access without a gap.',
+    reason: `You are receiving this because your order ${orderRef(order)} is close to expiring.`,
   });
 }
 
@@ -410,6 +477,8 @@ function paymentReminderEmail(order) {
   return baseTemplate('Payment reminder', body, {
     preheader: `${orderRef(order)} is still unpaid — ${formatPrice(order.total, order.currency)} due`,
     badge: pill('Unpaid', 'warn'),
+    context: 'Your items are still held for you, but not indefinitely - complete the payment to keep them.',
+    reason: `You are receiving this because order ${orderRef(order)} is still awaiting payment.`,
   });
 }
 
@@ -423,6 +492,8 @@ function unpaidOrderExpiredEmail(order) {
   return baseTemplate('Order cancelled', body, {
     preheader: `${orderRef(order)} cancelled — payment was not completed`,
     badge: pill('Cancelled', 'bad'),
+    context: 'The payment window closed before we received a payment, so the items were released.',
+    reason: `You are receiving this because order ${orderRef(order)} was cancelled.`,
     footerNote: 'You were not charged for this order.',
   });
 }
@@ -449,6 +520,8 @@ function ticketAutoClosedEmail(ticket, hours) {
   return baseTemplate('Support ticket closed', body, {
     preheader: `"${escapeHtml(ticket.subject)}" was closed after ${hours} hours of inactivity`,
     badge: pill('Closed', 'muted'),
+    context: 'No reply was needed, so we closed the thread. Reopening it takes one message.',
+    reason: 'You are receiving this because you opened a support ticket on accvendor.com.',
     footerNote: 'Closed tickets stay in your dashboard — nothing has been deleted.',
   });
 }
@@ -469,6 +542,8 @@ function adminMessageEmail({ subject, message, recipientName, orderNumber }) {
   return baseTemplate(escapeHtml(subject), body, {
     preheader: message.slice(0, 120),
     badge: pill('Message from support'),
+    context: orderNumber ? `About your order ${escapeHtml(String(orderNumber))}.` : 'A message from the Accvendor support team.',
+    reason: 'You are receiving this because our support team replied to you directly.',
   });
 }
 
@@ -479,6 +554,8 @@ function newsletterWelcomeEmail() {
   `;
   return baseTemplate('Welcome to Accvendor', body, {
     preheader: "You're subscribed to Accvendor updates",
+    context: 'You will hear from us when there are new products, restocks and offers - nothing else.',
+    reason: 'You are receiving this because this address was subscribed to the Accvendor newsletter.',
     footerNote: 'You can unsubscribe from any newsletter email.',
   });
 }
