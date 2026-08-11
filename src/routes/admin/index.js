@@ -6,6 +6,7 @@ const authRoutes = require('./auth.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const catalogRoutes = require('./catalog.routes');
 const userRoutes = require('./user.routes');
+const leadRoutes = require('./lead.routes');
 const orderRoutes = require('./order.routes');
 const ticketRoutes = require('./ticket.routes');
 const reviewRoutes = require('./review.routes');
@@ -29,6 +30,7 @@ router.use(auditLog);
 router.use('/dashboard', dashboardRoutes);
 router.use('/', catalogRoutes); // /products, /categories, /coupons, /payment-methods
 router.use('/users', userRoutes);
+router.use('/leads', leadRoutes);
 router.use('/orders', orderRoutes);
 router.use('/support/tickets', ticketRoutes);
 router.use('/reviews', reviewRoutes);

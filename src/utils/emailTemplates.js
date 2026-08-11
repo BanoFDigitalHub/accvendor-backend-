@@ -598,6 +598,56 @@ function newsletterWelcomeEmail() {
   });
 }
 
+/**
+ * Admin-facing: someone asked to be told when selling opens.
+ *
+ * Every value here was typed by a stranger on a public form, so all of it goes through
+ * escapeHtml — this is the one template whose entire body is untrusted input.
+ */
+function leadEmail({ program = "Seller", name, email, phone = "", details, isRepeat = false, submissions = 1 }) {
+  const body = `
+    ${p(`${strong(escapeHtml(name))} wants to be notified when the ${escapeHtml(program).toLowerCase()} programme opens.`)}
+    ${panel(
+      `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.8;">
+        <strong>Name:</strong> ${escapeHtml(name)}<br />
+        <strong>Email:</strong> <a href="mailto:${escapeHtml(email)}" style="color:${BRAND.accentDark};text-decoration:none;">${escapeHtml(email)}</a>
+        ${phone ? `<br /><strong>Phone:</strong> ${escapeHtml(phone)}` : ''}
+        ${isRepeat ? `<br /><strong>Submissions:</strong> ${submissions} (they have asked before)` : ''}
+      </p>`
+    )}
+    ${details ? panel(`<p style="margin:0 0 6px;color:${BRAND.faint};font-size:12px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;">What they want to sell</p><p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.7;white-space:pre-line;">${escapeHtml(details)}</p>`) : p('They did not add any details.')}
+    ${p('Reply straight to them at the address above when you are ready to open their account.')}
+  `;
+  return baseTemplate(`New ${program.toLowerCase()} waitlist signup`, body, {
+    preheader: `${escapeHtml(name)} — ${escapeHtml(email)}${phone ? ` — ${escapeHtml(phone)}` : ''}`,
+    badge: pill(`${program} waitlist`),
+    context: 'Someone filled in the "notify me" form on the site. The full list is under Leads in the admin panel.',
+    reason: 'You are receiving this because you are an administrator on accvendor.com.',
+  });
+}
+
+/** Visitor-facing: confirms they are on the list, and sets the expectation honestly. */
+function leadConfirmationEmail({ program = "Seller", name }) {
+  const body = `
+    ${p(`Thanks${name ? `, ${escapeHtml(String(name).split(' ')[0])}` : ''} — you are on the list.`)}
+    ${p(`The Accvendor ${escapeHtml(program).toLowerCase()} programme is not open yet. When it is, you will be one of the first to hear, and we will send you everything you need to get started.`)}
+    ${panel(
+      `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.7;">
+        <strong>What happens next</strong><br />
+        We work through the waitlist in batches. There is nothing else for you to do — we will email this address.
+      </p>`
+    )}
+    ${p('In the meantime you can keep buying as normal.')}
+    ${button(`${SITE_URL}/products`, 'Browse the catalog')}
+  `;
+  return baseTemplate(`You are on the ${program.toLowerCase()} waitlist`, body, {
+    preheader: `We will email you the moment the ${program.toLowerCase()} programme opens on Accvendor`,
+    badge: pill('Waitlist', 'good'),
+    context: 'We will email you as soon as it opens.',
+    reason: `You are receiving this because you asked to be notified when the ${program.toLowerCase()} programme opens on accvendor.com.`,
+  });
+}
+
 module.exports = {
   baseTemplate,
   otpEmail,
@@ -615,6 +665,8 @@ module.exports = {
   orderCancelledEmail,
   ticketAutoClosedEmail,
   adminMessageEmail,
+  leadEmail,
+  leadConfirmationEmail,
   newsletterWelcomeEmail,
   loginButton,
 };
