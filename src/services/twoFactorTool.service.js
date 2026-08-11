@@ -21,6 +21,24 @@ function assertValidSecret(secret) {
   }
 }
 
+const OTPAUTH_ISSUER = 'Accvendor';
+
+/**
+ * The standard `otpauth://` URI, so the recipient can import the account into Google
+ * Authenticator / Authy in one tap instead of retyping the key.
+ */
+function buildOtpauthUri(secret, { label, digits = 6, period = 30, algorithm = 'SHA1' } = {}) {
+  const account = String(label || '').trim() || '2FA account';
+  const params = new URLSearchParams({
+    secret,
+    issuer: OTPAUTH_ISSUER,
+    algorithm,
+    digits: String(digits),
+    period: String(period),
+  });
+  return `otpauth://totp/${encodeURIComponent(`${OTPAUTH_ISSUER}:${account}`)}?${params.toString()}`;
+}
+
 /** Current code plus how long it stays valid, derived from the TOTP step boundary. */
 function currentCode(secret, { period = 30, digits = 6 } = {}) {
   const instance = authenticator.clone({ step: period, digits });
@@ -33,9 +51,9 @@ function currentCode(secret, { period = 30, digits = 6 } = {}) {
  * Creates a shareable link for a TOTP secret.
  *
  * The secret is encrypted at rest and the URL carries only a random 32-byte token, of which we
- * store just the SHA-256 — so neither the link nor a database dump alone reveals the secret,
- * and the plaintext is never sent to any client. The share page asks the server for the current
- * code instead, which is what lets it work from a different browser or device with no session.
+ * store just the SHA-256 — so neither the link nor a database dump alone reveals the secret.
+ * The share page asks the server for the current code and the key, which is what lets it work
+ * from a different browser or device with no session.
  */
 async function createShare({ secret, label, digits = 6, period = 30, userId = null, ip = null }) {
   const normalized = normalizeSecret(secret);
@@ -67,7 +85,15 @@ async function loadShare(token) {
   return share;
 }
 
-/** Serves the current code for a share. The secret itself is never part of the response. */
+/**
+ * Serves everything the recipient of a share link needs: the current code, the base32 secret
+ * key it is derived from, and an `otpauth://` URI for importing it into an authenticator app.
+ *
+ * The key is deliberately part of the response — a share link is how an account's 2FA is handed
+ * over, and a code alone stops working the moment the link expires. It is still never in the URL
+ * itself, still encrypted at rest, and still only reachable through an unguessable token that
+ * self-expires.
+ */
 async function getShareCode(token) {
   const share = await loadShare(token);
 
@@ -84,7 +110,18 @@ async function getShareCode(token) {
 
   await TotpShare.updateOne({ _id: share._id }, { $inc: { views: 1 }, $set: { lastViewedAt: new Date() } });
 
-  return { ...result, label: share.label, expiresAt: share.expiresAt };
+  return {
+    ...result,
+    label: share.label,
+    expiresAt: share.expiresAt,
+    secret,
+    otpauthUri: buildOtpauthUri(secret, {
+      label: share.label,
+      digits: share.digits,
+      period: share.period,
+      algorithm: share.algorithm,
+    }),
+  };
 }
 
 async function revokeShare(token) {

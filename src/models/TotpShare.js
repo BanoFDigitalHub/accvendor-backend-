@@ -7,7 +7,8 @@ const totpShareSchema = new mongoose.Schema(
     tokenHash: { type: String, required: true, unique: true, index: true },
 
     // AES-256-GCM ciphertext of the TOTP secret (iv:tag:payload, see utils/crypto.util.js).
-    // The plaintext secret is never returned to any client — the server derives codes itself.
+    // Decrypted only for the holder of the share token, who is handed the key along with the
+    // current code — see twoFactorTool.service.js#getShareCode.
     secretEnc: { type: String, required: true },
 
     label: { type: String, trim: true, default: '', maxlength: 100 },

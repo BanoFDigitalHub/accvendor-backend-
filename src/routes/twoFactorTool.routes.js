@@ -59,8 +59,8 @@ router.post(
   })
 );
 
-// The share page polls this. Returns the current code and the seconds left in the step —
-// never the underlying secret.
+// The share page polls this. Returns the current code, the seconds left in the step, the base32
+// secret key and an otpauth:// import URI — the token in the URL is the only credential for it.
 router.get(
   '/share/:token',
   searchLimiter,
