@@ -1,5 +1,5 @@
 const { z } = require('zod');
-const { AD_TYPES, AD_PLACEMENTS, AD_DEVICES, AD_FREQUENCIES } = require('../models/Ad');
+const { AD_TYPES, AD_PLACEMENTS, AD_DEVICES, AD_FREQUENCIES, AD_PAGES } = require('../models/Ad');
 const { ORDER_STATUSES } = require('../models/Order');
 const { partialUpdateSchema } = require('./partialUpdate');
 
@@ -173,6 +173,9 @@ const adBaseSchema = z.object({
     startsAt: z.coerce.date().nullable().optional(),
     endsAt: z.coerce.date().nullable().optional(),
     devices: z.array(z.enum(AD_DEVICES)).min(1).optional().default([...AD_DEVICES]),
+    // An empty list would serve to nobody, which is never what "no pages ticked" means to an
+    // admin — the panel sends ['all'] in that case and the serving filter treats it as such.
+    pages: z.array(z.enum(AD_PAGES)).min(1).optional().default(['all']),
     isActive: z.boolean().optional().default(true),
 
     popup: z

@@ -24,12 +24,13 @@ function toPublicAd(ad) {
 }
 
 /**
- * Serving filter: active, inside its scheduling window, and targeted at this device.
+ * Serving filter: active, inside its scheduling window, and targeted at this device and page.
  *
  * A null startsAt/endsAt means "no bound on that side", so an ad with neither is always live
- * once activated.
+ * once activated. Page targeting is likewise permissive by omission: `all`, an empty list and a
+ * missing field all mean every page, which is what every row predating the field has.
  */
-function servingFilter({ placement, device, now = new Date() }) {
+function servingFilter({ placement, device, page, now = new Date() }) {
   const filter = {
     isActive: true,
     $and: [
@@ -39,11 +40,16 @@ function servingFilter({ placement, device, now = new Date() }) {
   };
   if (placement) filter.placement = String(placement).toLowerCase();
   if (device) filter.devices = device;
+  if (page) {
+    filter.$and.push({
+      $or: [{ pages: 'all' }, { pages: page }, { pages: { $size: 0 } }, { pages: { $exists: false } }],
+    });
+  }
   return filter;
 }
 
-async function listActiveAds({ placement, device } = {}) {
-  const ads = await Ad.find(servingFilter({ placement, device }))
+async function listActiveAds({ placement, device, page } = {}) {
+  const ads = await Ad.find(servingFilter({ placement, device, page }))
     .sort({ priority: -1, sortOrder: 1, createdAt: -1 })
     .limit(20)
     .lean();
@@ -56,8 +62,8 @@ async function listActiveAds({ placement, device } = {}) {
  * The storefront renders several placements per page (top, sidebar, between-products, popup…);
  * fetching them together keeps a page view to a single ad request instead of one per slot.
  */
-async function listAdsByPlacement({ device } = {}) {
-  const ads = await Ad.find(servingFilter({ device }))
+async function listAdsByPlacement({ device, page } = {}) {
+  const ads = await Ad.find(servingFilter({ device, page }))
     .sort({ priority: -1, sortOrder: 1, createdAt: -1 })
     .limit(60)
     .lean();

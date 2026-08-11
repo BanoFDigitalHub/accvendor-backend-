@@ -22,6 +22,13 @@ const AD_PLACEMENTS = [
 const AD_DEVICES = ['desktop', 'tablet', 'mobile'];
 const AD_FREQUENCIES = ['always', 'session', 'daily', 'once'];
 
+// Which storefront pages an ad is allowed to appear on. A placement says *where on the page*;
+// this says *which pages* — an admin who wants a banner only on the catalog needs both. The keys
+// are groups rather than raw paths so a new route doesn't silently fall outside every rule:
+// `client/src/site/lib/adPage.js` maps a pathname onto exactly one of them.
+// 'all' is the default and short-circuits the rest.
+const AD_PAGES = ['all', 'home', 'products', 'product', 'dashboard', 'tools', 'info'];
+
 const popupSchema = new mongoose.Schema(
   {
     delaySeconds: { type: Number, default: 6, min: 0, max: 120 },
@@ -56,6 +63,9 @@ const adSchema = new mongoose.Schema(
     startsAt: { type: Date, default: null },
     endsAt: { type: Date, default: null },
     devices: { type: [String], enum: AD_DEVICES, default: AD_DEVICES },
+    // Rows that predate page targeting have no value here, which `servingFilter` reads as
+    // "everywhere" — exactly the behaviour they had before, so nothing needs backfilling.
+    pages: { type: [String], default: ['all'] },
     isActive: { type: Boolean, default: true, index: true },
 
     popup: { type: popupSchema, default: () => ({}) },
@@ -90,4 +100,5 @@ module.exports = {
   AD_PLACEMENTS,
   AD_DEVICES,
   AD_FREQUENCIES,
+  AD_PAGES,
 };
