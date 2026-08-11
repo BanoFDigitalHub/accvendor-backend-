@@ -55,6 +55,13 @@ function orderRef(order) {
   return order.orderNumber || String(order._id).slice(-8).toUpperCase();
 }
 
+// Deep link to the one order the email is about. `/dashboard` alone drops the customer on a
+// list and makes them find it again — with several orders open that is a real hunt, and the
+// dashboard route already accepts an order number.
+function orderUrl(order) {
+  return order?.orderNumber ? `${SITE_URL}/dashboard/orders/${encodeURIComponent(order.orderNumber)}` : `${SITE_URL}/dashboard`;
+}
+
 function p(text, extra = '') {
   return `<p style="margin:0 0 14px;color:${BRAND.muted};font-size:15px;line-height:1.65;${extra}">${text}</p>`;
 }
@@ -140,25 +147,37 @@ function baseTemplate(title, bodyHtml, options = {}) {
         <td align="center" style="padding:32px 12px;">
           <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(11,27,51,0.08);">
 
-            <!-- Logo *and* wordmark, side by side. Gmail and Outlook block remote images by
-                 default for a sender the recipient has never replied to, so a logo-only header
-                 renders as an empty navy bar with a broken-image icon — the text keeps the
-                 brand present either way, and the alt text carries it inside the image slot. -->
+            <!-- Accent rule across the top. Two pixels of brand that render in every client,
+                 with no image and no font, so the email is recognisably ours before anything
+                 else has loaded. -->
+            <tr><td style="height:4px;background:${BRAND.accent};font-size:0;line-height:0;">&nbsp;</td></tr>
+
+            <!-- Brand mark, then wordmark.
+                 Gmail and Outlook block remote images by default for a sender the recipient has
+                 never replied to. The logo previously carried alt="accvendor.com" *inside* an
+                 anchor, so a blocked image rendered as a blue underlined "accvendor.com" —
+                 a stray link sitting where the logo should be, which is exactly how it looked
+                 in a real inbox. The image is now decorative (alt=""), so blocking it leaves
+                 nothing behind, and the mark beside it is drawn with a table cell and a letter:
+                 no image to block, no font to miss, correct in every client. -->
             <tr>
-              <td style="padding:24px 32px;background:${BRAND.navy};">
+              <td style="padding:26px 32px;background:${BRAND.navy};">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
                   <tr>
-                    <td style="padding-right:12px;" valign="middle">
-                      <a href="${SITE_URL}" style="text-decoration:none;">
-                        <img src="${LOGO_URL}" width="44" height="44" alt="${BRAND.name}"
-                          style="display:block;width:44px;height:44px;border:0;border-radius:10px;" />
-                      </a>
+                    <td width="46" style="width:46px;padding-right:14px;" valign="middle">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="46" style="width:46px;">
+                        <tr>
+                          <td align="center" valign="middle" height="46"
+                            style="width:46px;height:46px;background:${BRAND.accent};border-radius:12px;color:#ffffff;font-family:${FONT};font-size:19px;font-weight:700;letter-spacing:0.5px;line-height:46px;">
+                            <img src="${LOGO_URL}" width="46" height="46" alt=""
+                              style="display:block;width:46px;height:46px;border:0;border-radius:12px;" />
+                          </td>
+                        </tr>
+                      </table>
                     </td>
                     <td valign="middle">
-                      <a href="${SITE_URL}" style="text-decoration:none;">
-                        <span style="display:block;color:#ffffff;font-family:${FONT};font-size:19px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;">${BRAND.name}</span>
-                        <span style="display:block;margin-top:2px;color:#9db4d4;font-family:${FONT};font-size:12px;line-height:1.2;">${BRAND.tagline}</span>
-                      </a>
+                      <span style="display:block;color:#ffffff;font-family:${FONT};font-size:20px;font-weight:700;letter-spacing:-0.2px;line-height:1.25;">${BRAND.name}</span>
+                      <span style="display:block;margin-top:3px;color:#9db4d4;font-family:${FONT};font-size:12px;letter-spacing:0.2px;line-height:1.3;">${BRAND.tagline}</span>
                     </td>
                   </tr>
                 </table>
@@ -180,6 +199,25 @@ function baseTemplate(title, bodyHtml, options = {}) {
             <tr>
               <td style="padding:22px 32px 30px;color:${BRAND.muted};font-size:15px;line-height:1.65;">
                 ${bodyHtml}
+              </td>
+            </tr>
+
+            <!-- A real way to reach a person, one row above the legal small print. Every
+                 support email we send is answered by the same team this points at. -->
+            <tr>
+              <td style="padding:0 32px 26px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="padding:16px 20px;background:${BRAND.panel};border-radius:12px;">
+                      <p style="margin:0;color:${BRAND.ink};font-size:14px;font-weight:600;line-height:1.5;">Need a hand?</p>
+                      <p style="margin:4px 0 0;color:${BRAND.muted};font-size:13px;line-height:1.6;">
+                        Our team answers every ticket —
+                        <a href="${SITE_URL}/dashboard/tickets/new" style="color:${BRAND.accentDark};font-weight:600;text-decoration:underline;">open one here</a>
+                        and we'll pick it up.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
 
@@ -306,7 +344,7 @@ function orderCreatedEmail(order) {
         then upload your payment proof so we can verify it and release your account.
       </p>`
     )}
-    ${button(`${SITE_URL}/dashboard`, 'Upload payment proof')}
+    ${button(orderUrl(order), 'Upload payment proof')}
   `;
   return baseTemplate('Order received', body, {
     preheader: `Order ${orderRef(order)} — ${formatPrice(order.total, order.currency)}. Payment proof needed.`,
@@ -472,7 +510,7 @@ function paymentReminderEmail(order) {
       </p>`
     )}
     ${p('Once you have paid, upload your payment proof and we will verify it right away.')}
-    ${button(`${SITE_URL}/dashboard`, 'Complete payment')}
+    ${button(orderUrl(order), 'Complete payment')}
   `;
   return baseTemplate('Payment reminder', body, {
     preheader: `${orderRef(order)} is still unpaid — ${formatPrice(order.total, order.currency)} due`,
