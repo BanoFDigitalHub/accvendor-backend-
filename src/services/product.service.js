@@ -52,8 +52,21 @@ function toPublicProduct(p, rates) {
   };
 }
 
+/**
+ * Public listings never show a sold-out product.
+ *
+ * A card that says "Sold Out" is an advert for something nobody can buy: it takes a slot in a
+ * grid, it is the first thing a first-time visitor sees if it sorts to the front, and clicking
+ * it is a dead end. Stock is the shop's own state, so this is enforced here rather than being
+ * filtered in each of the four places that render a grid.
+ *
+ * `getProductBySlug` deliberately does *not* apply it — an emailed or bookmarked link to a
+ * product that has just run out should still open and say so, rather than 404.
+ */
+const IN_STOCK = { isActive: true, stock: { $gt: 0 } };
+
 async function listProducts({ page, limit, category, search, hot, sort, currency }) {
-  const filter = { isActive: true };
+  const filter = { ...IN_STOCK };
 
   if (category) {
     const cat = await Category.findOne({ slug: category, isActive: true }).lean();
@@ -114,7 +127,7 @@ async function getProductBySlug(slug) {
 
 async function listHotProducts(limit = 8) {
   const [items, rates] = await Promise.all([
-    Product.find({ isActive: true, isHotProduct: true })
+    Product.find({ ...IN_STOCK, isHotProduct: true })
       .populate('category', 'name slug')
       .sort({ createdAt: -1 })
       .limit(limit)

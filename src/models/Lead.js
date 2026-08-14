@@ -21,6 +21,10 @@ const leadSchema = new mongoose.Schema(
     // normalising them would only lose what the person actually typed.
     phone: { type: String, trim: true, default: '', maxlength: 40 },
     details: { type: String, trim: true, default: '', maxlength: 2000 },
+    // Where they already sell, if anywhere. Optional and free text rather than a validated URL:
+    // sellers answer this with a shop link, a marketplace profile, an Instagram handle or
+    // "nowhere yet", and rejecting three of those to enforce a scheme would lose the lead.
+    platformUrl: { type: String, trim: true, default: '', maxlength: 300 },
 
     // Incremented when the same address asks again — one row per address per programme, with a
     // count, rather than a pile of duplicates from someone who pressed the button twice.

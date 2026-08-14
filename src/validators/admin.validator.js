@@ -245,10 +245,12 @@ const statSchema = z.object({
 const testimonialSchema = z.object({
   name: z.string().trim().min(1).max(80),
   role: z.string().trim().max(120).optional().default(''),
+  location: z.string().trim().max(120).optional().default(''),
   avatarUrl: z.string().trim().max(2000).optional().default(''),
   rating: z.coerce.number().int().min(1).max(5).optional().default(5),
   quote: z.string().trim().min(1).max(1000),
   source: z.string().trim().max(60).optional().default(''),
+  postedAt: z.string().trim().max(40).optional().default(''),
   isSeed: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
 });

@@ -170,6 +170,60 @@ async function run() {
       'the admin session survives storefront logins filling the session list'
     );
 
+    // --- Concurrent refreshes must not erase each other -------------------------------------
+    //
+    // The remaining half of the same "Session expired" bug, and the one that survived the
+    // per-shell cap fix. `issueTokens` pushed the new jti onto the in-memory array, reassigned
+    // the array to a trimmed copy, and saved — which Mongoose writes as a `$set` of the whole
+    // array. Every concurrent refresh therefore wrote a snapshot taken before the others ran,
+    // and the last writer's copy won: the jtis the earlier ones had just minted were gone.
+    //
+    // That is the ordinary case, not a rare one. A browser wakes several requests at once when
+    // an access token expires, and anyone signed into both shells has two sessions expiring
+    // minutes apart. A jti erased that way is in neither `refreshTokens` nor `rotatedJtis`, so
+    // its next use reads as "this session no longer exists" and bounces the panel to the login
+    // screen mid-edit.
+    //
+    // Refreshing twice is what exposes it: the first round hands out tokens that were quietly
+    // dropped from the database, and only the second round has to find them there.
+    const devices = [jar(), jar(), jar(), jar(), jar()];
+    await Promise.all(devices.map((d) => call(d, '/auth/login', { method: 'POST', body: creds })));
+
+    const round1 = await Promise.all(devices.map((d) => call(d, '/auth/refresh', { method: 'POST' })));
+    assert(
+      round1.every((r) => r.status === 200),
+      'five simultaneous refreshes all succeed'
+    );
+
+    const round2 = await Promise.all(devices.map((d) => call(d, '/auth/refresh', { method: 'POST' })));
+    assert(
+      round2.every((r) => r.status === 200),
+      'and the tokens they issued are all still valid afterwards (no session lost to a concurrent write)'
+    );
+    assert(
+      (await Promise.all(devices.map((d) => call(d, '/auth/me')))).every((r) => r.status === 200),
+      'every device is still signed in'
+    );
+
+    // The same race across the two app-shells, which is the shape an operator actually hits:
+    // storefront in one tab, admin panel in the next, both refreshing together.
+    const shellA = jar();
+    const shellB = jar();
+    await call(shellA, '/admin/auth/login', { method: 'POST', body: creds });
+    await call(shellB, '/auth/login', { method: 'POST', body: creds });
+    await Promise.all([
+      call(shellA, '/admin/auth/refresh', { method: 'POST' }),
+      call(shellB, '/auth/refresh', { method: 'POST' }),
+    ]);
+    assert(
+      (await call(shellA, '/admin/auth/refresh', { method: 'POST' })).status === 200,
+      'the admin session survives a simultaneous storefront refresh'
+    );
+    assert(
+      (await call(shellB, '/auth/refresh', { method: 'POST' })).status === 200,
+      'the storefront session survives a simultaneous admin refresh'
+    );
+
     // A session that simply no longer exists costs only itself. Logging one device out and
     // replaying its refresh token must not revoke the *other* devices, which is what a
     // tokenVersion bump would do.

@@ -27,10 +27,10 @@ async function adminRecipients() {
  * sees the newer details either way, since a second submission usually means "I forgot to
  * mention something".
  */
-async function registerInterest({ program, name, email, phone = '', details = '', ip = null }) {
+async function registerInterest({ program, name, email, phone = '', details = '', platformUrl = '', ip = null }) {
   const lead = await Lead.findOneAndUpdate(
     { program, email: String(email).toLowerCase().trim() },
-    { $set: { name, phone, details, ip }, $inc: { submissions: 1 } },
+    { $set: { name, phone, details, platformUrl, ip }, $inc: { submissions: 1 } },
     { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
   );
 
@@ -52,7 +52,16 @@ async function registerInterest({ program, name, email, phone = '', details = ''
     await sendMail({
       to: to.join(','),
       subject: `${isRepeat ? 'Updated' : 'New'} ${label(program).toLowerCase()} waitlist signup — ${name}`,
-      html: leadEmail({ program: label(program), name, email: lead.email, phone, details, isRepeat, submissions: lead.submissions }),
+      html: leadEmail({
+        program: label(program),
+        name,
+        email: lead.email,
+        phone,
+        details,
+        platformUrl,
+        isRepeat,
+        submissions: lead.submissions,
+      }),
     });
   }
 
@@ -98,6 +107,7 @@ const CSV_COLUMNS = [
   ['Email', (l) => l.email],
   ['Phone', (l) => l.phone || ''],
   ['Programme', (l) => l.program],
+  ['Selling on', (l) => l.platformUrl || ''],
   ['Details', (l) => l.details || ''],
   ['Submissions', (l) => l.submissions],
   ['Contacted', (l) => (l.contactedAt ? new Date(l.contactedAt).toISOString().slice(0, 10) : '')],

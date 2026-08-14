@@ -327,6 +327,46 @@ async function createOrder(userId, { paymentMethodId, couponCode, idempotencyKey
 
 // --- Buyer-driven transitions -------------------------------------------------------------
 
+/**
+ * Switches an unpaid order onto a different payment method.
+ *
+ * Picking a method is a decision made at checkout, before a buyer has opened their banking app —
+ * and it is routinely the wrong one: the account turns out to be for a wallet they do not use,
+ * or the transfer limit does not cover the amount. There was no way back. The order held its
+ * method snapshot for good, so the only ways out were to let the order expire unpaid or to ask
+ * support to intervene, and the instructions on screen kept naming an account the buyer could
+ * not pay into.
+ *
+ * Deliberately restricted to `pending_payment`. Once proof has been submitted the snapshot is
+ * evidence — it is the account the admin is checking the payment against — so it must not move
+ * under review.
+ *
+ * Re-snapshotting rather than storing a reference keeps the existing guarantee that editing a
+ * payment method later cannot rewrite what an order was paid under.
+ */
+async function changePaymentMethod(userId, orderId, paymentMethodId) {
+  const order = await findOwnedOrder(userId, orderId);
+  if (order.status !== 'pending_payment') {
+    throw new ApiError(400, `The payment method can only be changed while an order is awaiting payment`);
+  }
+
+  const method = await PaymentMethod.findOne({ _id: paymentMethodId, isActive: true });
+  if (!method) throw new ApiError(400, 'Selected payment method is not available');
+
+  order.paymentMethod = {
+    id: method._id,
+    name: method.name,
+    accountTitle: method.accountTitle,
+    accountNumber: method.accountNumber,
+    instructions: method.instructions || '',
+    qrImageUrl: method.qrImageUrl || null,
+  };
+  await order.save();
+
+  return serializeOrder(order);
+}
+
+
 async function submitProof(userId, orderId, proofUrl, transactionId) {
   const order = await findOwnedOrder(userId, orderId);
   if (!['pending_payment', 'proof_submitted'].includes(order.status)) {
@@ -778,6 +818,7 @@ async function sendExpiryReminders() {
 }
 
 module.exports = {
+  changePaymentMethod,
   createOrder,
   submitProof,
   getMyOrders,

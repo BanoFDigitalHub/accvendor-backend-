@@ -8,6 +8,7 @@ const {
   submitProofSchema,
   orderIdParamsSchema,
   cancelRequestSchema,
+  changePaymentMethodSchema,
   listOrdersQuerySchema,
   credentialDownloadQuerySchema,
 } = require('../validators/order.validator');
@@ -32,6 +33,14 @@ router.post(
   orderLimiter,
   validate({ params: orderIdParamsSchema, body: submitProofSchema }),
   controller.submitProof
+);
+// Switching methods on an order that has not been paid yet. Behind orderLimiter like the other
+// buyer-driven order mutations, so it cannot be used to hammer the payment-method collection.
+router.patch(
+  '/:id/payment-method',
+  orderLimiter,
+  validate({ params: orderIdParamsSchema, body: changePaymentMethodSchema }),
+  controller.changePaymentMethod
 );
 router.get('/:id/credential-link', validate({ params: orderIdParamsSchema }), controller.getCredentialLink);
 router.post(

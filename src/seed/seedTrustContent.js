@@ -5,16 +5,47 @@ const Settings = require('../models/Settings');
 /**
  * Seeds the storefront trust sections with starter content.
  *
- * Everything here describes what this platform actually does — instant delivery, buyer
- * protection, support hours. There are deliberately **no** seeded Google/Trustpilot ratings and
- * no invented customer names: a star rating attributed to a named review site is a factual claim
- * about a third party, and testimonials presented as real customers are a claim about people who
- * do not exist. Both belong to the operator, who enters them in Admin -> Settings once there is
- * something true to enter.
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * READ THIS BEFORE LAUNCH.
  *
- * Seeded testimonials carry `isSeed: true` so they stay identifiable as demo content and can be
- * removed in one query. Run with: npm run seed:trust
+ * Everything below is **placeholder copy**, including the Google and Trustpilot figures and
+ * every named reviewer. None of it describes real customers or real third-party scores. It
+ * exists so the sections can be designed and demoed against realistic content, and so the
+ * operator can see exactly which fields to fill.
+ *
+ * A star rating attributed to Google or Trustpilot is a factual claim about a third party, and
+ * a testimonial with a name attached is a claim about a person. Publishing either while it is
+ * still invented is a consumer-protection problem in most markets, not just a bad look —
+ * replace all of it in Admin → Settings with figures you can point at.
+ *
+ * Every seeded row carries `isSeed: true` precisely so it can be found and cleared in one query:
+ *   db.settings.updateOne({singleton:'main'}, {$pull: {'trust.testimonials': {isSeed: true}}})
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ *
+ * Run with: npm run seed:trust
  */
+
+// Placeholder. Replace with the real figures from your own Google Business and Trustpilot
+// profiles, and point `url` at those profiles.
+const RATING_PROVIDERS = [
+  {
+    provider: 'Google',
+    rating: 4.9,
+    reviewCount: 127,
+    url: '',
+    accent: '#f5b301', // Google renders amber stars
+    isActive: true,
+  },
+  {
+    provider: 'Trustpilot',
+    rating: 4.8,
+    reviewCount: 89,
+    url: '',
+    accent: '#00b67a', // Trustpilot renders green
+    isActive: true,
+  },
+];
+
 const BADGES = [
   { label: 'Buyer Protection', sublabel: 'Every order covered', isActive: true },
   { label: 'Instant Delivery', sublabel: '95% under 5 minutes', isActive: true },
@@ -23,64 +54,76 @@ const BADGES = [
 ];
 
 const STATS = [
-  { value: '10K+', label: 'Orders Delivered', isActive: true },
-  { value: '50+', label: 'Products Available', isActive: true },
-  { value: '95%', label: 'Delivered in 5 Minutes', isActive: true },
-  { value: '24/7', label: 'Support Coverage', isActive: true },
+  { value: '10K+', label: 'Orders delivered', isActive: true },
+  { value: '50+', label: 'Products available', isActive: true },
+  { value: '95%', label: 'Delivered in 5 minutes', isActive: true },
+  { value: '24/7', label: 'Support coverage', isActive: true },
 ];
 
+/**
+ * Six placeholder reviews, written about *this* business — subscriptions, delivery speed,
+ * warranty, currency handling, support — rather than generic praise. `source` decides which
+ * branding and star colour the card renders, so the mix here is deliberate: four Google, two
+ * Trustpilot, matching the review counts above.
+ */
 const TESTIMONIALS = [
   {
     name: 'Ahmed K.',
-    role: 'Verified buyer',
-    quote: 'Ordered a subscription and the credentials were in my dashboard within a minute of the payment being approved.',
+    role: 'Verified buyer · Lahore',
+    quote:
+      'Ordered a Netflix subscription at 1am expecting to wait until morning. The credentials were in my dashboard about two minutes after my payment proof was approved. I have reordered four times since.',
     rating: 5,
-    source: 'Verified purchase',
+    source: 'Google',
     isSeed: true,
     isActive: true,
   },
   {
     name: 'Sarah L.',
-    role: 'Verified buyer',
-    quote: 'Support replied at 2am and sorted my order out straight away. The 24/7 claim is not decoration.',
+    role: 'Verified buyer · Dubai',
+    quote:
+      'One account stopped working on day six. I opened a ticket, someone answered within the hour, and it was replaced under warranty the same evening. That is the part I was worried about and it was handled properly.',
     rating: 5,
-    source: 'Verified purchase',
+    source: 'Trustpilot',
     isSeed: true,
     isActive: true,
   },
   {
     name: 'Yusuf A.',
-    role: 'Verified buyer',
-    quote: 'Prices are clear per currency, so what I saw in USD is exactly what I paid. No conversion surprises.',
+    role: 'Verified buyer · Karachi',
+    quote:
+      'Prices are shown per currency, so what I saw in USD is exactly what I was charged. No conversion surprise at checkout and no hidden fee added at the end.',
     rating: 5,
-    source: 'Verified purchase',
+    source: 'Google',
     isSeed: true,
     isActive: true,
   },
   {
-    name: 'Emily R.',
-    role: 'Verified buyer',
-    quote: 'The payment proof step made me trust it — I could see exactly where my order was at every stage.',
+    name: 'Bilal R.',
+    role: 'Verified buyer · Islamabad',
+    quote:
+      'I buy three or four subscriptions a month for my team. Being able to see every order, its validity date and its warranty window in one dashboard saves me a spreadsheet.',
     rating: 5,
-    source: 'Verified purchase',
+    source: 'Google',
     isSeed: true,
     isActive: true,
   },
   {
-    name: 'Hamza T.',
-    role: 'Verified buyer',
-    quote: 'Bought three products in one order and each one arrived separately with its own validity period.',
-    rating: 5,
-    source: 'Verified purchase',
+    name: 'Mariam S.',
+    role: 'Verified buyer · Manchester',
+    quote:
+      'Checkout was straightforward and I could switch payment method when my first one would not go through. Only reason for four stars is that I would like more payment options.',
+    rating: 4,
+    source: 'Trustpilot',
     isSeed: true,
     isActive: true,
   },
   {
-    name: 'Chloe M.',
-    role: 'Verified buyer',
-    quote: 'Raised a ticket about an expiring subscription and had a renewal sorted the same day.',
+    name: 'Daniyal H.',
+    role: 'Verified buyer · Rawalpindi',
+    quote:
+      'The 2FA generator alone is worth bookmarking. I use it constantly and it has never asked me to sign in or sent my secret anywhere, which is exactly what it claims.',
     rating: 5,
-    source: 'Verified purchase',
+    source: 'Google',
     isSeed: true,
     isActive: true,
   },
@@ -94,11 +137,22 @@ async function run() {
   const raw = await Settings.collection.findOne({ singleton: 'main' });
   const existing = raw?.trust || {};
 
+  // Only ever fills a gap. Anything the operator has already entered is theirs and is never
+  // overwritten by a seed run, however many times this is executed.
   const patch = {};
+  if (!existing.ratingProviders?.length) patch['trust.ratingProviders'] = RATING_PROVIDERS;
   if (!existing.badges?.length) patch['trust.badges'] = BADGES;
   if (!existing.stats?.length) patch['trust.stats'] = STATS;
-  if (!existing.testimonials?.length) patch['trust.testimonials'] = TESTIMONIALS;
-  if (!existing.reviewsHeading) patch['trust.reviewsHeading'] = 'Trusted by thousands of buyers';
+  if (!existing.reviewsHeading) patch['trust.reviewsHeading'] = 'What customers say about us';
+
+  // Testimonials are the one list a re-run may rewrite — but only when every row still present
+  // is seed copy. `isSeed` is what makes that safe: the moment the operator adds or edits one,
+  // the list contains something real and the seed leaves it alone entirely.
+  const currentTestimonials = existing.testimonials || [];
+  const allSeeded = currentTestimonials.length > 0 && currentTestimonials.every((t) => t.isSeed);
+  if (currentTestimonials.length === 0 || allSeeded) {
+    patch['trust.testimonials'] = TESTIMONIALS;
+  }
 
   if (Object.keys(patch).length === 0) {
     console.log('[seed:trust] trust content already present — nothing changed');
@@ -107,9 +161,10 @@ async function run() {
     console.log(`[seed:trust] seeded: ${Object.keys(patch).join(', ')}`);
   }
 
-  console.log(
-    '[seed:trust] rating providers left empty on purpose — add real Google/Trustpilot figures in Admin -> Settings.'
-  );
+  console.log('');
+  console.log('[seed:trust] ⚠  The ratings and reviews just written are PLACEHOLDERS.');
+  console.log('[seed:trust]    They are not real customers and not real Google/Trustpilot scores.');
+  console.log('[seed:trust]    Replace them in Admin → Settings before this site takes real traffic.');
 
   await disconnectDB();
 }

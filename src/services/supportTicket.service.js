@@ -8,6 +8,11 @@ const { sendMail } = require('./email.service');
 const { ticketAutoClosedEmail } = require('../utils/emailTemplates');
 const { env } = require('../config/env');
 
+// The related order, in the shape a ticket page needs: enough to recognise it and link to it,
+// and nothing more. Stored since tickets began but never read back, so an operator opening a
+// ticket about "my order" still had to go and find which one.
+const RELATED_ORDER_FIELDS = 'orderNumber status currency total createdAt items.name items.quantity';
+
 async function createTicket(userId, { subject, body, attachmentUrl, orderId }) {
   if (orderId) {
     const order = await Order.findOne({ _id: orderId, user: userId }).lean();
@@ -66,7 +71,9 @@ async function getMyTickets(userId, { page, limit }) {
 }
 
 async function getTicketById(userId, ticketId) {
-  const ticket = await SupportTicket.findOne({ _id: ticketId, user: userId }).lean();
+  const ticket = await SupportTicket.findOne({ _id: ticketId, user: userId })
+    .populate('relatedOrder', RELATED_ORDER_FIELDS)
+    .lean();
   if (!ticket) throw new ApiError(404, 'Ticket not found');
   return ticket;
 }
@@ -120,7 +127,10 @@ async function adminListTickets({ page, limit, status }) {
 }
 
 async function adminGetTicket(ticketId) {
-  const ticket = await SupportTicket.findById(ticketId).populate('user', 'email isBlocked blockReason').lean();
+  const ticket = await SupportTicket.findById(ticketId)
+    .populate('user', 'email isBlocked blockReason')
+    .populate('relatedOrder', RELATED_ORDER_FIELDS)
+    .lean();
   if (!ticket) throw new ApiError(404, 'Ticket not found');
   return ticket;
 }

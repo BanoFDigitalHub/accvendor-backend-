@@ -22,6 +22,13 @@ const submitProof = asyncHandler(async (req, res) => {
   apiResponse(res, 200, 'Payment proof submitted', { order });
 });
 
+// Only ever reachable while the order is still awaiting payment — the service enforces that,
+// not this handler.
+const changePaymentMethod = asyncHandler(async (req, res) => {
+  const order = await orderService.changePaymentMethod(req.user._id, req.params.id, req.body.paymentMethodId);
+  apiResponse(res, 200, 'Payment method updated', { order });
+});
+
 const list = asyncHandler(async (req, res) => {
   const { page, limit, status, search } = req.query;
   const result = await orderService.getMyOrders(req.user._id, { page, limit, status, search });
@@ -60,4 +67,4 @@ const downloadCredential = asyncHandler(async (req, res) => {
   res.redirect(credentialFileUrl);
 });
 
-module.exports = { create, submitProof, list, detail, downloadCredential, getCredentialLink, requestCancel };
+module.exports = { create, submitProof, changePaymentMethod, list, detail, downloadCredential, getCredentialLink, requestCancel };

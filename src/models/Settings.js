@@ -42,10 +42,15 @@ const testimonialSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     role: { type: String, default: '', trim: true },
+    location: { type: String, default: '', trim: true }, // 'Austin, TX'
     avatarUrl: { type: String, default: '', trim: true },
     rating: { type: Number, default: 5, min: 1, max: 5 },
     quote: { type: String, required: true, trim: true, maxlength: 1000 },
     source: { type: String, default: '', trim: true }, // 'Google', 'Trustpilot', 'Verified purchase'
+    // Free text ('2 weeks ago') rather than a Date: this is copied across from whatever the
+    // review platform displays, and inventing a precise timestamp we cannot verify would make
+    // the card claim more than the source does.
+    postedAt: { type: String, default: '', trim: true },
     // Marks demo/seed copy so it can be listed and removed in one action, and never presented
     // as a genuine verified purchase.
     isSeed: { type: Boolean, default: false },

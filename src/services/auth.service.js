@@ -216,24 +216,65 @@ async function resendOtp({ email }) {
   return PendingSignup.findOne({ email });
 }
 
+/**
+ * Which stored refresh tokens are dead weight once `keepJti` has been added.
+ *
+ * The cap is per app-shell, not global. One array holds both shells' sessions, so a global
+ * cap meant storefront logins could evict the admin panel's still-valid refresh token — and
+ * an evicted token is indistinguishable from a stolen one on its next use. Trimming within a
+ * scope keeps the two shells from ever pushing each other out. Expired entries go too: they
+ * would otherwise occupy a slot until evicted.
+ *
+ * Returns jtis to remove rather than the array to keep — see issueTokens for why that matters.
+ */
+function prunableJtis(refreshTokens, keepJti) {
+  const now = new Date();
+  const survivors = new Set();
+  for (const s of [SCOPE_SITE, SCOPE_ADMIN]) {
+    refreshTokens
+      .filter((t) => (t.scope || SCOPE_SITE) === s)
+      .slice(-MAX_REFRESH_TOKENS_PER_USER)
+      .forEach((t) => survivors.add(t.jti));
+  }
+  return refreshTokens
+    .filter((t) => t.jti !== keepJti)
+    .filter((t) => !survivors.has(t.jti) || (t.expiresAt && t.expiresAt <= now))
+    .map((t) => t.jti);
+}
+
 async function issueTokens(user, { userAgent, ip } = {}, scope = SCOPE_SITE) {
   const jti = newJti();
-  user.refreshTokens.push({ jti, expiresAt: refreshExpiryDate(), userAgent, ip, scope });
+  const entry = { jti, expiresAt: refreshExpiryDate(), userAgent, ip, scope };
 
-  // The cap is per app-shell, not global. One array holds both shells' sessions, so a global
-  // cap meant storefront logins could evict the admin panel's still-valid refresh token — and
-  // an evicted token is indistinguishable from a stolen one on its next use. Trimming within a
-  // scope keeps the two shells from ever pushing each other out.
-  const kept = [];
-  for (const s of [SCOPE_SITE, SCOPE_ADMIN]) {
-    const forScope = user.refreshTokens.filter((t) => (t.scope || SCOPE_SITE) === s);
-    kept.push(...forScope.slice(-MAX_REFRESH_TOKENS_PER_USER));
+  // `refreshTokens` is only ever mutated with $push/$pull of *named* entries — never assigned
+  // wholesale.
+  //
+  // The previous version pushed onto the in-memory array, reassigned it to the trimmed copy,
+  // and saved. Mongoose turns a reassignment into a `$set` of the entire array, so whatever a
+  // concurrent request had written in the meantime was silently erased. Anyone signed into both
+  // app-shells at once — which is every operator, storefront in one tab and admin panel in the
+  // next — hits that constantly: the two shells' access tokens expire minutes apart, both
+  // refresh, and the slower `$set` wipes the faster one's brand-new jti. On its next use that
+  // jti is in neither `refreshTokens` nor `rotatedJtis`, which reads as "this session no longer
+  // exists" and bounces the panel to the login screen mid-edit. Additive operators cannot lose
+  // a write that way.
+  const updated = await User.findByIdAndUpdate(
+    user._id,
+    { $push: { refreshTokens: entry } },
+    { returnDocument: 'after' }
+  );
+
+  const doomed = prunableJtis(updated?.refreshTokens || [], jti);
+  if (doomed.length) {
+    await User.updateOne({ _id: user._id }, { $pull: { refreshTokens: { jti: { $in: doomed } } } });
   }
-  // Expired entries are dead weight that would otherwise occupy a slot until evicted.
-  const now = new Date();
-  user.refreshTokens = kept.filter((t) => !t.expiresAt || t.expiresAt > now || t.jti === jti);
 
-  await user.save();
+  // Keep the caller's hydrated document consistent without letting it write the array back:
+  // `unmarkModified` means a later save() by a caller touches its own fields only.
+  if (updated) {
+    user.refreshTokens = updated.refreshTokens.filter((t) => !doomed.includes(t.jti));
+    user.unmarkModified('refreshTokens');
+  }
 
   const accessToken = signAccessToken(user, scope);
   const refreshToken = signRefreshToken(user, jti, scope);

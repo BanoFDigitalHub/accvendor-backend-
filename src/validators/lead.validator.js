@@ -10,6 +10,7 @@ const leadInterestSchema = z.object({
   email: z.string().trim().toLowerCase().email('Enter a valid email address').max(200),
   phone: z.string().trim().max(40).optional().default(''),
   details: z.string().trim().max(2000).optional().default(''),
+  platformUrl: z.string().trim().max(300).optional().default(''),
 });
 
 const listLeadsQuerySchema = paginationQuerySchema.extend({

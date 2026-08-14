@@ -604,7 +604,16 @@ function newsletterWelcomeEmail() {
  * Every value here was typed by a stranger on a public form, so all of it goes through
  * escapeHtml — this is the one template whose entire body is untrusted input.
  */
-function leadEmail({ program = "Seller", name, email, phone = "", details, isRepeat = false, submissions = 1 }) {
+function leadEmail({
+  program = "Seller",
+  name,
+  email,
+  phone = "",
+  details,
+  platformUrl = "",
+  isRepeat = false,
+  submissions = 1,
+}) {
   const body = `
     ${p(`${strong(escapeHtml(name))} wants to be notified when the ${escapeHtml(program).toLowerCase()} programme opens.`)}
     ${panel(
@@ -612,6 +621,7 @@ function leadEmail({ program = "Seller", name, email, phone = "", details, isRep
         <strong>Name:</strong> ${escapeHtml(name)}<br />
         <strong>Email:</strong> <a href="mailto:${escapeHtml(email)}" style="color:${BRAND.accentDark};text-decoration:none;">${escapeHtml(email)}</a>
         ${phone ? `<br /><strong>Phone:</strong> ${escapeHtml(phone)}` : ''}
+        ${platformUrl ? `<br /><strong>Already selling on:</strong> ${escapeHtml(platformUrl)}` : ''}
         ${isRepeat ? `<br /><strong>Submissions:</strong> ${submissions} (they have asked before)` : ''}
       </p>`
     )}

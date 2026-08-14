@@ -85,10 +85,21 @@ async function run() {
     let body = await res.json();
     assert(res.status === 200 && body.data.categories.length === 2, 'categories list returns both categories');
 
+    // Public listings show active *and* in-stock products only. Of the four seeded rows that
+    // leaves Netflix and Xbox Pass: Spotify is stock 0 and Hidden Inactive is isActive false.
+    // A sold-out card takes a slot in the grid and clicking it is a dead end, so it is filtered
+    // server-side rather than in each of the four places that render a grid.
     res = await fetch(`${base}/api/products`);
     body = await res.json();
-    assert(res.status === 200 && body.data.products.length === 3, 'inactive product excluded from listing');
-    assert(body.data.pagination.total === 3, 'pagination total matches active product count');
+    assert(
+      res.status === 200 && body.data.products.length === 2,
+      'inactive and sold-out products are both excluded from the listing'
+    );
+    assert(
+      body.data.products.every((p) => p.slug !== 'spotify'),
+      'the zero-stock product is the one that was dropped'
+    );
+    assert(body.data.pagination.total === 2, 'pagination total counts only buyable products');
 
     res = await fetch(`${base}/api/products?category=gaming`);
     body = await res.json();
@@ -99,7 +110,7 @@ async function run() {
 
     res = await fetch(`${base}/api/products?limit=1&page=2&sort=priceAsc`);
     body = await res.json();
-    assert(res.status === 200 && body.data.pagination.totalPages === 3, 'pagination math correct with limit=1');
+    assert(res.status === 200 && body.data.pagination.totalPages === 2, 'pagination math correct with limit=1');
 
     res = await fetch(`${base}/api/products/hot`);
     body = await res.json();

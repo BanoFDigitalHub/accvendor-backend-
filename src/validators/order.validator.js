@@ -53,6 +53,10 @@ const validateCouponSchema = z.object({
   buyNow: buyNowSchema.optional(),
 });
 
+const changePaymentMethodSchema = z.object({
+  paymentMethodId: objectId,
+});
+
 const cancelRequestSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
@@ -71,6 +75,7 @@ const credentialDownloadQuerySchema = z.object({
 });
 
 module.exports = {
+  changePaymentMethodSchema,
   createOrderSchema,
   submitProofSchema,
   orderIdParamsSchema,
