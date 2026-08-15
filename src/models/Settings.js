@@ -94,6 +94,21 @@ const settingsSchema = new mongoose.Schema(
       allReviewsUrl: { type: String, default: '', trim: true },
     },
 
+    // --- Support hours ------------------------------------------------------------------
+    // Drives the thin strip above the storefront navbar. The window is stored and displayed in
+    // **UTC/GMT**, deliberately: the buyer is in another country and "we're open 9 to 9" with no
+    // zone attached is not an answer they can act on. The storefront computes open/closed from
+    // these two values rather than the admin typing a status nobody remembers to change.
+    support: {
+      showHours: { type: Boolean, default: true },
+      // When true the window is ignored entirely and the strip simply says the desk never closes.
+      alwaysOpen: { type: Boolean, default: true },
+      opensAt: { type: String, default: '09:00', trim: true }, // 'HH:MM' UTC
+      closesAt: { type: String, default: '21:00', trim: true }, // 'HH:MM' UTC
+      // Optional free text appended after the hours ('Replies within 15 minutes').
+      note: { type: String, default: '', trim: true },
+    },
+
     // --- Footer -------------------------------------------------------------------------
     footer: {
       copyrightYear: { type: String, default: '2024', trim: true },

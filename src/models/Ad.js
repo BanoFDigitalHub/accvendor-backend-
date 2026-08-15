@@ -32,6 +32,13 @@ const AD_PAGES = ['all', 'home', 'products', 'product', 'dashboard', 'tools', 'i
 const popupSchema = new mongoose.Schema(
   {
     delaySeconds: { type: Number, default: 6, min: 0, max: 120 },
+    // How long the popup stays on screen once shown, and the duration the countdown line across
+    // its top drains over. Separate from `delaySeconds` on purpose: that one is how long the
+    // visitor waits before seeing it, this one is how long they then have — overloading a single
+    // field to mean both would make "6 seconds" ambiguous in the admin form.
+    // Defaults to 0 — no countdown, the popup waits to be closed — so every ad that predates
+    // this field keeps behaving exactly as it did.
+    autoCloseSeconds: { type: Number, default: 0, min: 0, max: 120 },
     // How often a returning visitor may see this popup again. 'session' = once per tab session,
     // 'daily' = once per calendar day, 'once' = never again on that device.
     frequency: { type: String, enum: AD_FREQUENCIES, default: 'session' },

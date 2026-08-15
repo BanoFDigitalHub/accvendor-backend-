@@ -181,6 +181,11 @@ const adBaseSchema = z.object({
     popup: z
       .object({
         delaySeconds: z.coerce.number().int().min(0).max(120).optional().default(6),
+        // How long it stays up once shown, drained by the countdown line across its top. 0 means
+        // it waits to be closed. Distinct from `delaySeconds`, which is the wait *before* it
+        // appears — the model has carried this field for a while with nothing reading it, so a
+        // value set here previously went nowhere.
+        autoCloseSeconds: z.coerce.number().int().min(0).max(120).optional().default(0),
         frequency: z.enum(AD_FREQUENCIES).optional().default('session'),
         cooldownHours: z.coerce.number().int().min(0).max(24 * 90).optional().default(24),
         dismissible: z.boolean().optional().default(true),
@@ -282,6 +287,19 @@ const settingsUpdateSchema = z.object({
       testimonials: z.array(testimonialSchema).max(24).optional(),
       reviewsHeading: z.string().trim().max(160).optional(),
       allReviewsUrl: z.string().trim().max(500).optional(),
+    })
+    .optional(),
+  support: z
+    .object({
+      // Real booleans, not coerced: `z.coerce.boolean()` turns the string "false" into `true`,
+      // which would silently switch the strip back on every time it was saved off.
+      showHours: z.boolean().optional(),
+      alwaysOpen: z.boolean().optional(),
+      // 'HH:MM', 24-hour, UTC. Validated here so a malformed value can never reach the strip,
+      // where an unparseable time would read as "closed" on a desk that is open.
+      opensAt: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour, UTC)').optional(),
+      closesAt: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour, UTC)').optional(),
+      note: z.string().trim().max(120).optional(),
     })
     .optional(),
   footer: z

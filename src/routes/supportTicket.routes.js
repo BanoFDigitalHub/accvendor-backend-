@@ -15,6 +15,9 @@ router.use(requireAuth);
 
 router.get('/', validate({ query: listTicketsQuerySchema }), controller.list);
 router.post('/', validate({ body: createTicketSchema }), controller.create);
+// Must be declared before '/:id' — Express matches in order, and 'open' is a valid-looking
+// segment that the id route would otherwise swallow and then reject as a malformed ObjectId.
+router.get('/open', controller.liveTicket);
 router.get('/:id', validate({ params: ticketIdParamsSchema }), controller.detail);
 router.post(
   '/:id/messages',

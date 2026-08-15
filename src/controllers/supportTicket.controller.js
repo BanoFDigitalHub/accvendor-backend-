@@ -21,9 +21,17 @@ const list = asyncHandler(async (req, res) => {
   });
 });
 
+// Lets the "new ticket" page show the thread the customer already has instead of a form that is
+// going to 409. The rule itself is enforced in createTicket — this is only how the UI finds out
+// about it before spending someone's typing.
+const liveTicket = asyncHandler(async (req, res) => {
+  const ticket = await ticketService.findLiveTicket(req.user._id);
+  apiResponse(res, 200, ticket ? 'Open ticket found' : 'No open ticket', { ticket: ticket || null });
+});
+
 const detail = asyncHandler(async (req, res) => {
   const ticket = await ticketService.getTicketById(req.user._id, req.params.id);
   apiResponse(res, 200, 'Ticket fetched', { ticket });
 });
 
-module.exports = { create, addMessage, list, detail };
+module.exports = { create, addMessage, list, detail, liveTicket };

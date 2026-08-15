@@ -13,11 +13,53 @@ const { env } = require('../config/env');
 // ticket about "my order" still had to go and find which one.
 const RELATED_ORDER_FIELDS = 'orderNumber status currency total createdAt items.name items.quantity';
 
+/**
+ * A ticket that is still someone's problem. `open` is waiting on support, `answered` is waiting
+ * on the customer — both are live conversations. Only `closed` is finished.
+ */
+const LIVE_STATUSES = ['open', 'answered'];
+
+/**
+ * The customer's current live ticket, or null.
+ *
+ * **One live ticket per customer, ever.** Without this a frustrated buyer files the same
+ * complaint four times in ten minutes — four ticket rows, four admin notifications, four
+ * separate threads that each have to be read and one of which gets answered — and the reply
+ * lands on a thread they have already stopped looking at. Everything they want to add belongs
+ * on the thread that is already open, which `addMessage` reopens on every customer reply.
+ *
+ * `block_appeal` tickets are counted too: an appeal is exactly the kind of thing someone sends
+ * five times.
+ */
+async function findLiveTicket(userId) {
+  return SupportTicket.findOne({ user: userId, status: { $in: LIVE_STATUSES } })
+    .sort({ updatedAt: -1 })
+    .select('_id subject status createdAt updatedAt')
+    .lean();
+}
+
+/** The 409 both creation paths raise, carrying the ticket the customer should be sent to. */
+function alreadyOpenError(existing) {
+  return new ApiError(
+    409,
+    'You already have a support ticket open. Please continue the conversation there — we reply on the same thread.',
+    {
+      code: 'TICKET_ALREADY_OPEN',
+      ticketId: String(existing._id),
+      subject: existing.subject,
+      status: existing.status,
+    }
+  );
+}
+
 async function createTicket(userId, { subject, body, attachmentUrl, orderId }) {
   if (orderId) {
     const order = await Order.findOne({ _id: orderId, user: userId }).lean();
     if (!order) throw new ApiError(404, 'Order not found');
   }
+
+  const existing = await findLiveTicket(userId);
+  if (existing) throw alreadyOpenError(existing);
 
   const ticket = await SupportTicket.create({
     user: userId,
@@ -86,6 +128,17 @@ async function createBlockAppeal({ email, message }) {
   const user = await User.findOne({ email });
   if (!user || !user.isBlocked) {
     throw new ApiError(400, 'No blocked account found for this email');
+  }
+
+  // Same one-live-ticket rule as the authenticated path. This endpoint needs no session, so
+  // without it anyone who knows a blocked address can file appeals in a loop.
+  const existing = await findLiveTicket(user._id);
+  if (existing) {
+    throw new ApiError(
+      409,
+      'An appeal for this account is already open and is being reviewed. Please wait for our reply rather than sending another.',
+      { code: 'TICKET_ALREADY_OPEN' }
+    );
   }
 
   const ticket = await SupportTicket.create({
@@ -223,6 +276,8 @@ module.exports = {
   addMessage,
   getMyTickets,
   getTicketById,
+  findLiveTicket,
+  LIVE_STATUSES,
   createBlockAppeal,
   adminListTickets,
   adminGetTicket,

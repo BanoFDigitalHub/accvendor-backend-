@@ -113,10 +113,25 @@ const blockAppeal = asyncHandler(async (req, res) => {
   apiResponse(res, 201, 'Your request has been sent to support.');
 });
 
-const googleAuthStub = asyncHandler(async (req, res) => {
+/**
+ * Google Sign-In.
+ *
+ * Deliberately one endpoint for sign-up and sign-in — the visitor pressed one button and does not
+ * know which of the two this is. It answers with exactly the shape `/auth/login` does, cookies
+ * included, so the client has one success path to handle.
+ */
+const googleAuth = asyncHandler(async (req, res) => {
+  const { user, tokens } = await authService.loginWithGoogle(req.body, reqMeta(req));
+  setAuthCookies(res, tokens);
+  apiResponse(res, 200, 'Signed in with Google', user.toSafeJSON());
+});
+
+// The old GET stub. Kept so anything still linking to it gets an explanation rather than a 404,
+// and because it is the one honest answer for a deploy with no GOOGLE_CLIENT_ID set.
+const googleAuthStub = asyncHandler(async () => {
   throw new ApiError(
     501,
-    'Google Sign-In is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in server/.env to enable it. Manual email signup remains fully available.'
+    'Google Sign-In uses POST /api/auth/google with an ID token from Google Identity Services. If the button is missing, set GOOGLE_CLIENT_ID in server/.env and VITE_GOOGLE_CLIENT_ID in client/.env.'
   );
 });
 
@@ -136,5 +151,6 @@ module.exports = {
   changePassword,
   me,
   blockAppeal,
+  googleAuth,
   googleAuthStub,
 };

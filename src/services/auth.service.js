@@ -7,6 +7,7 @@ const ApiError = require('../utils/ApiError');
 const { env } = require('../config/env');
 const { generateOtp, generateResetToken } = require('../utils/otp.util');
 const { sendMail } = require('./email.service');
+const { verifyIdToken: verifyGoogleIdToken } = require('./google.service');
 const { otpEmail, passwordResetEmail } = require('../utils/emailTemplates');
 const {
   signAccessToken,
@@ -296,6 +297,17 @@ async function login({ email, password }, meta, scope = SCOPE_SITE) {
 
   if (!user.isVerified) throw new ApiError(403, 'Please verify your email before logging in');
 
+  // A Google-only account has no password to compare against, and `bcrypt.compare(x, undefined)`
+  // rejects rather than returning false — so without this the whole request 500s. The message is
+  // deliberately specific: the generic "invalid email or password" is correct about a wrong
+  // password but useless here, because no password the person can type will ever work, and they
+  // would keep trying (and eventually lock the account) instead of pressing the other button.
+  if (!user.hasPassword()) {
+    throw new ApiError(400, 'This account signs in with Google. Use “Continue with Google” above.', {
+      code: 'USE_GOOGLE_SIGNIN',
+    });
+  }
+
   const match = await bcrypt.compare(password, user.passwordHash);
   if (!match) {
     user.failedLoginAttempts += 1;
@@ -319,6 +331,78 @@ async function login({ email, password }, meta, scope = SCOPE_SITE) {
   if (user.role === 'admin' && user.totpEnabled && scope === SCOPE_ADMIN) {
     return { requires2FA: true, pendingToken: sign2faPendingToken(user) };
   }
+
+  const tokens = await issueTokens(user, meta, scope);
+  return { user, tokens };
+}
+
+/**
+ * Sign in (or sign up) with a Google ID token.
+ *
+ * One endpoint covers both, because from the visitor's side there is only one button and they do
+ * not know or care whether we have seen them before. Three cases, in the order they are checked:
+ *
+ *  1. **Known Google account** — matched on `googleId`, the stable identifier. Never match on
+ *     email alone for a returning user: Google addresses can be changed and reassigned, `sub`
+ *     cannot.
+ *  2. **Existing local account with the same verified email** — linked, not duplicated. Two rows
+ *     for one person is how someone signs in with Google and finds an empty order history. The
+ *     link is only safe because `google.service.js` has already refused any token whose address
+ *     Google has not itself verified; without that check this branch would be a takeover of any
+ *     account whose email address an attacker could merely claim.
+ *  3. **Nobody** — a new user, created verified. There is no OTP step: Google has already proved
+ *     the address, and mailing a code to an address Google just vouched for asks the person to
+ *     prove something twice. The row is created with no password and no security question, which
+ *     the User schema allows precisely for this (`requiredForPasswordAccounts`).
+ *
+ * Scope is passed through but is always `site` in practice — `/api/admin/auth` deliberately has
+ * no Google route. The admin panel's whole security model is that its sessions come from a
+ * password plus optional TOTP that we control; a federated identity provider is a second way in
+ * that nobody asked for.
+ */
+async function loginWithGoogle({ credential }, meta, scope = SCOPE_SITE) {
+  if (scope !== SCOPE_SITE) {
+    throw new ApiError(400, 'Google sign-in is not available for the admin panel.');
+  }
+
+  const profile = await verifyGoogleIdToken(credential);
+
+  let user = await User.findOne({ googleId: profile.googleId });
+
+  if (!user) {
+    user = await User.findOne({ email: profile.email });
+    if (user) {
+      // Case 2 — link. Everything already on the row (orders, tickets, password if they have
+      // one) stays exactly as it is; only the sign-in method is added.
+      user.googleId = profile.googleId;
+      if (!user.avatarUrl) user.avatarUrl = profile.avatarUrl;
+      // A local signup that never finished OTP cannot exist as a User row (see PendingSignup),
+      // so this only ever repairs a row from before that was true.
+      user.isVerified = true;
+    } else {
+      // Case 3 — create.
+      user = new User({
+        name: profile.name,
+        email: profile.email,
+        googleId: profile.googleId,
+        authProvider: 'google',
+        avatarUrl: profile.avatarUrl,
+        isVerified: true,
+      });
+    }
+  }
+
+  // Blocked is blocked, whichever door they came through. Checked after the lookup rather than
+  // before so a blocked user still gets the specific message instead of a generic failure.
+  if (user.isBlocked) {
+    throw new ApiError(403, 'This account has been blocked', { blocked: true, blockReason: user.blockReason });
+  }
+
+  // Signing in successfully clears a password lockout, exactly as a correct password does —
+  // proving you own the Google account is at least as strong as knowing the password.
+  user.failedLoginAttempts = 0;
+  user.lockUntil = null;
+  await user.save();
 
   const tokens = await issueTokens(user, meta, scope);
   return { user, tokens };
@@ -486,12 +570,24 @@ async function resetPasswordWithToken({ email, token, newPassword }) {
 async function getSecurityQuestion({ email }) {
   const user = await User.findOne({ email });
   if (!user) throw new ApiError(404, 'Account not found');
+  // A Google account never chose one. Say so, rather than returning an empty question the modal
+  // would render as a blank prompt with a field under it.
+  if (!user.securityQuestion) {
+    throw new ApiError(400, 'This account signs in with Google, so it has no security question.', {
+      code: 'USE_GOOGLE_SIGNIN',
+    });
+  }
   return user.securityQuestion;
 }
 
 async function resetPasswordWithSecurityQuestion({ email, securityAnswer, newPassword }) {
   const user = await User.findOne({ email });
   if (!user) throw new ApiError(404, 'Account not found');
+  if (!user.securityAnswerHash) {
+    throw new ApiError(400, 'This account signs in with Google, so it has no security question.', {
+      code: 'USE_GOOGLE_SIGNIN',
+    });
+  }
 
   const match = await bcrypt.compare(normalizeAnswer(securityAnswer), user.securityAnswerHash);
   if (!match) throw new ApiError(400, 'Incorrect security answer');
@@ -502,6 +598,17 @@ async function resetPasswordWithSecurityQuestion({ email, securityAnswer, newPas
 async function changePassword(userId, { currentPassword, newPassword }, meta) {
   const user = await User.findById(userId);
   if (!user) throw new ApiError(404, 'User not found');
+
+  // Nothing to change *from* on a Google-only account. The reset-link path is the way to add a
+  // first password — it verifies the mailbox, which is the only proof of ownership available
+  // when there is no current password to ask for.
+  if (!user.hasPassword()) {
+    throw new ApiError(
+      400,
+      'This account signs in with Google and has no password yet. Use “Forgot password?” on the login screen to set one.',
+      { code: 'USE_GOOGLE_SIGNIN' }
+    );
+  }
 
   const match = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!match) throw new ApiError(401, 'Current password is incorrect');
@@ -531,6 +638,7 @@ module.exports = {
   verifyOtp,
   resendOtp,
   login,
+  loginWithGoogle,
   verifyLoginTwoFactor,
   setupTwoFactor,
   confirmTwoFactor,

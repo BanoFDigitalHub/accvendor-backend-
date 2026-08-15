@@ -22,6 +22,7 @@ const {
   resetPasswordWithSecurityQuestionSchema,
   changePasswordSchema,
   blockAppealSchema,
+  googleAuthSchema,
 } = require('../validators/auth.validator');
 
 const router = express.Router();
@@ -31,6 +32,10 @@ router.post('/check-email', emailCheckLimiter, validate({ body: checkEmailSchema
 router.post('/verify-otp', otpVerifyLimiter, validate({ body: verifyOtpSchema }), controller.verifyOtp);
 router.post('/resend-otp', otpResendLimiter, validate({ body: resendOtpSchema }), controller.resendOtp);
 router.post('/login', authLimiter, validate({ body: loginSchema }), controller.login);
+// Sign-up and sign-in in one call — the visitor pressed one button. Behind `authLimiter` like
+// every other credential endpoint: the ID token is cheap for us to reject but the verification
+// hits Google's certificate cache, and this is a public, unauthenticated route.
+router.post('/google', authLimiter, validate({ body: googleAuthSchema }), controller.googleAuth);
 router.post(
   '/login/2fa',
   authLimiter,

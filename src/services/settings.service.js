@@ -17,11 +17,36 @@ async function getSettingsDoc() {
   ).lean();
 }
 
+/**
+ * Defaults for sub-documents added after the singleton row was first written.
+ *
+ * `getSettingsDoc()` reads `.lean()`, and a lean read returns the raw document — Mongoose fills
+ * schema defaults in *memory* on a hydrated read, not on disk, so a nested block that has never
+ * been saved comes back as `undefined` rather than as its defaults. That is the same trap
+ * `migrate.js` documents, and it is why the storefront's support strip silently did not exist
+ * on any install that had ever saved its settings before the field was added.
+ *
+ * Filling them in here rather than in each consumer means the client has exactly one shape to
+ * read, whether the row is a fresh insert (which does get defaults, via `setDefaultsOnInsert`)
+ * or five years old.
+ */
+const SUPPORT_DEFAULTS = {
+  showHours: true,
+  alwaysOpen: true,
+  opensAt: '09:00',
+  closesAt: '21:00',
+  note: '',
+};
+
 async function getSettings() {
   const settings = await getSettingsDoc();
   // Config that lives in the environment rather than the database, merged in so the client
   // has one place to read site configuration from.
-  return { ...settings, discordUrl: env.discordUrl || settings.socialLinks?.discord || '' };
+  return {
+    ...settings,
+    support: { ...SUPPORT_DEFAULTS, ...(settings.support || {}) },
+    discordUrl: env.discordUrl || settings.socialLinks?.discord || '',
+  };
 }
 
 async function getRates() {

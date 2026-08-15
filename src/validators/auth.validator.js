@@ -77,8 +77,26 @@ const blockAppealSchema = z.object({
   message: z.string().trim().min(1, 'Message is required').max(2000),
 });
 
+/**
+ * The Google ID token the browser received from Google Identity Services.
+ *
+ * Bounded, not parsed: a JWT is three base64url segments joined by dots, and anything that shape
+ * still has to survive signature verification in google.service.js — this only keeps a
+ * megabyte-long string from ever reaching the crypto. 4096 is comfortably above a real Google ID
+ * token (~1KB) and far below anything worth spending CPU on.
+ */
+const googleAuthSchema = z.object({
+  credential: z
+    .string()
+    .trim()
+    .min(20)
+    .max(4096)
+    .regex(/^[\w-]+\.[\w-]+\.[\w-]+$/, 'Malformed Google credential'),
+});
+
 module.exports = {
   SECURITY_QUESTIONS,
+  googleAuthSchema,
   signupSchema,
   checkEmailSchema,
   verifyOtpSchema,
