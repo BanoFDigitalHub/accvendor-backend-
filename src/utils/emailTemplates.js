@@ -1,21 +1,29 @@
 const { env } = require('../config/env');
 const { formatMoney } = require('./money');
 
+/**
+ * White paper, blue ink for the things you press.
+ *
+ * The template used to be a rounded card on a tinted page with a navy masthead, a tinted "need a
+ * hand" panel and a tinted footer — four different grounds in one message. Every one of them is
+ * a surface a mail client can render slightly differently, and together they made a receipt look
+ * like a marketing layout. It is now white throughout, and the **only** colour is the brand blue,
+ * used for exactly two things: the button, and the hairlines that separate one part from the
+ * next. Everything else is type — size and weight do the work that colour was doing.
+ *
+ * No greens, ambers or reds. A status is stated in the title and in words; a coloured chip saying
+ * the same thing is decoration, and it is the first thing that makes a transactional email look
+ * like a template rather than a letter.
+ */
 const BRAND = {
   name: 'accvendor.com',
   tagline: 'Accounts for every need',
-  navy: '#0b1b33',
   accent: '#036af7',
   accentDark: '#0355c4',
   ink: '#132741',
   muted: '#5a6b80',
   faint: '#8496ab',
-  line: '#e2e8f0',
-  wash: '#f4f7fb',
-  panel: '#eef4fd',
-  good: '#0f7b52',
-  warn: '#9a5b00',
-  bad: '#b3261e',
+  line: '#e6ebf1',
 };
 
 // The storefront, never the admin origin — every button below is pressed by a customer.
@@ -106,23 +114,23 @@ function button(href, label) {
   </table>`;
 }
 
-function pill(label, tone = 'accent') {
-  const tones = {
-    accent: { bg: BRAND.panel, fg: BRAND.accentDark },
-    good: { bg: '#e6f4ee', fg: BRAND.good },
-    warn: { bg: '#fdf3e2', fg: BRAND.warn },
-    bad: { bg: '#fdeceb', fg: BRAND.bad },
-    muted: { bg: BRAND.wash, fg: BRAND.faint },
-  };
-  const { bg, fg } = tones[tone] || tones.accent;
-  return `<span style="display:inline-block;padding:5px 12px;background:${bg};color:${fg};font-size:12px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;border-radius:999px;">${label}</span>`;
+/**
+ * The small label above the title.
+ *
+ * One treatment, whatever it says: uppercase, letterspaced, on white inside a hairline. The
+ * `tone` argument is still accepted so the fifteen call sites do not all have to change, and is
+ * deliberately ignored — a green "Delivered" and a red "Not verified" were the only two things
+ * in the message that were not blue, and the title beneath already says which one it is.
+ */
+function pill(label) {
+  return `<span style="display:inline-block;padding:5px 12px;background:#ffffff;border:1px solid ${BRAND.line};color:${BRAND.faint};font-size:11px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;border-radius:999px;">${label}</span>`;
 }
 
 // A bordered panel for the things the reader actually came for — the code, the credentials,
 // the order summary — so they survive a skim.
 function panel(innerHtml, extra = '') {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;">
-    <tr><td style="padding:18px 20px;background:${BRAND.wash};border:1px solid ${BRAND.line};border-radius:12px;${extra}">${innerHtml}</td></tr>
+    <tr><td style="padding:18px 20px;background:#ffffff;border:1px solid ${BRAND.line};border-radius:10px;${extra}">${innerHtml}</td></tr>
   </table>`;
 }
 
@@ -176,20 +184,20 @@ function baseTemplate(title, bodyHtml, options = {}) {
     <xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
     <![endif]-->
   </head>
-  <body style="margin:0;padding:0;width:100%;background:${BRAND.wash};font-family:${FONT};-webkit-font-smoothing:antialiased;">
+  <body style="margin:0;padding:0;width:100%;background:#ffffff;font-family:${FONT};-webkit-font-smoothing:antialiased;">
     <div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;color:transparent;">${preheader}</div>
     <!-- Trailing entities stop Gmail pulling body copy into the inbox preview after the preheader. -->
     <div style="display:none;max-height:0;overflow:hidden;">${'&#847;&zwnj;&nbsp;'.repeat(30)}</div>
 
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BRAND.wash};">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
       <tr>
-        <td align="center" style="padding:32px 12px;">
-          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(11,27,51,0.08);">
+        <td align="center" style="padding:28px 16px 40px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#ffffff;">
 
             <!-- Accent rule across the top. Two pixels of brand that render in every client,
                  with no image and no font, so the email is recognisably ours before anything
                  else has loaded. -->
-            <tr><td style="height:4px;background:${BRAND.accent};font-size:0;line-height:0;">&nbsp;</td></tr>
+            <tr><td style="height:3px;background:${BRAND.accent};font-size:0;line-height:0;">&nbsp;</td></tr>
 
             <!-- Brand mark, then wordmark.
                  Gmail and Outlook block remote images by default for a sender the recipient has
@@ -208,31 +216,17 @@ function baseTemplate(title, bodyHtml, options = {}) {
                  of art in a 46px tile) stops the shape touching the rounded corners, and the
                  source is 512px so it is still ~14x the rendered density on any display. -->
             <tr>
-              <td style="padding:26px 32px;background:${BRAND.navy};">
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
-                  <tr>
-                    <td width="46" style="width:46px;padding-right:14px;" valign="middle">
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="46" style="width:46px;">
-                        <tr>
-                          <td align="center" valign="middle" height="46"
-                            style="width:46px;height:46px;background:#ffffff;border-radius:12px;line-height:46px;">
-                            <img src="${LOGO_SRC}" width="36" height="36" alt=""
-                              style="display:block;margin:0 auto;width:36px;height:36px;border:0;" />
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                    <td valign="middle">
-                      <span style="display:block;color:#ffffff;font-family:${FONT};font-size:20px;font-weight:700;letter-spacing:-0.2px;line-height:1.25;">${BRAND.name}</span>
-                      <span style="display:block;margin-top:3px;color:#9db4d4;font-family:${FONT};font-size:12px;letter-spacing:0.2px;line-height:1.3;">${BRAND.tagline}</span>
-                    </td>
-                  </tr>
-                </table>
+              <td align="center" style="padding:30px 32px 24px;background:#ffffff;">
+                <img src="${LOGO_SRC}" width="52" height="52" alt=""
+                  style="display:block;margin:0 auto;width:52px;height:52px;border:0;" />
+                <div style="margin:12px 0 0;color:${BRAND.ink};font-family:${FONT};font-size:17px;font-weight:700;letter-spacing:-0.2px;line-height:1.3;">${BRAND.name}</div>
               </td>
             </tr>
 
+            <tr><td style="padding:0 32px;"><div style="height:1px;background:${BRAND.line};font-size:0;line-height:0;">&nbsp;</div></td></tr>
+
             <tr>
-              <td style="padding:32px 32px 0;" align="center">
+              <td style="padding:30px 32px 0;" align="center">
                 ${badge ? `<div style="margin:0 0 14px;">${badge}</div>` : ''}
                 <h1 style="margin:0;color:${BRAND.ink};font-size:23px;line-height:1.35;font-weight:700;letter-spacing:-0.3px;">${title}</h1>
                 ${
@@ -252,24 +246,18 @@ function baseTemplate(title, bodyHtml, options = {}) {
             <!-- A real way to reach a person, one row above the legal small print. Every
                  support email we send is answered by the same team this points at. -->
             <tr>
-              <td style="padding:0 32px 26px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                  <tr>
-                    <td style="padding:16px 20px;background:${BRAND.panel};border-radius:12px;">
-                      <p style="margin:0;color:${BRAND.ink};font-size:14px;font-weight:600;line-height:1.5;">Need a hand?</p>
-                      <p style="margin:4px 0 0;color:${BRAND.muted};font-size:13px;line-height:1.6;">
-                        Our team answers every ticket —
-                        <a href="${SITE_URL}/dashboard/tickets/new" style="color:${BRAND.accentDark};font-weight:600;text-decoration:underline;">open one here</a>
-                        and we'll pick it up.
-                      </p>
-                    </td>
-                  </tr>
-                </table>
+              <td style="padding:0 32px 24px;">
+                <div style="height:1px;background:${BRAND.line};font-size:0;line-height:0;">&nbsp;</div>
+                <p style="margin:20px 0 0;color:${BRAND.muted};font-size:13px;line-height:1.7;">
+                  Need a hand? Our team answers every ticket —
+                  <a href="${SITE_URL}/dashboard/tickets/new" style="color:${BRAND.accentDark};font-weight:600;text-decoration:underline;">open one here</a>
+                  and we'll pick it up.
+                </p>
               </td>
             </tr>
 
             <tr>
-              <td style="padding:22px 32px 26px;background:${BRAND.wash};border-top:1px solid ${BRAND.line};text-align:center;">
+              <td style="padding:22px 32px 8px;background:#ffffff;border-top:1px solid ${BRAND.line};text-align:center;">
                 ${footerNote ? `<p style="margin:0 0 14px;color:${BRAND.faint};font-size:13px;line-height:1.6;">${footerNote}</p>` : ''}
 
                 <!-- Every email carries the same way back to the site: a recipient who wants to
@@ -285,7 +273,7 @@ function baseTemplate(title, bodyHtml, options = {}) {
                   <a href="${SITE_URL}/terms" style="color:${BRAND.accentDark};font-weight:600;text-decoration:none;">Terms</a>
                 </p>
 
-                <p style="margin:0;color:${BRAND.ink};font-size:14px;font-weight:700;">${BRAND.name}</p>
+                <p style="margin:0;color:${BRAND.ink};font-size:13px;font-weight:700;">${BRAND.name}</p>
                 <p style="margin:3px 0 0;color:${BRAND.faint};font-size:12px;">${BRAND.tagline}</p>
                 <p style="margin:12px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">${reason}</p>
                 <p style="margin:8px 0 0;color:${BRAND.faint};font-size:11px;line-height:1.6;">
