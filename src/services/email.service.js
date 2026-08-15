@@ -1,5 +1,36 @@
+const fs = require('fs');
+const path = require('path');
 const nodemailer = require('nodemailer');
 const { env } = require('../config/env');
+const { LOGO_CID } = require('../utils/emailTemplates');
+
+/**
+ * The brand mark, sent **inside** the message rather than fetched from the web.
+ *
+ * Gmail, Outlook and Apple Mail all block remote images by default for a sender the recipient
+ * has never replied to — which is every transactional email a new customer gets. The URL was
+ * reachable and the markup was correct; the client simply refused to fetch it, and what the
+ * reader saw where the logo should be was a placeholder icon. Nothing about the HTML can fix
+ * that, because the decision is made before the request is ever sent.
+ *
+ * An inline attachment referenced as `cid:` is part of the message, so there is no request to
+ * block. Read once at boot: it is a 13KB file and re-reading it per send would be pure I/O on
+ * the signup path.
+ *
+ * If the file is missing — a partial deploy, a build that dropped `src/assets` — the reference
+ * is rewritten to the public URL on the way out rather than left as a dead `cid:`, so the worst
+ * case is the behaviour we had before instead of a broken image in every email.
+ */
+const LOGO_PATH = path.join(__dirname, '..', 'assets', 'email-logo.png');
+let logoBase64 = null;
+try {
+  logoBase64 = fs.readFileSync(LOGO_PATH).toString('base64');
+} catch {
+  console.warn(
+    `[email] ${path.relative(process.cwd(), LOGO_PATH)} is missing — the logo will be linked from ` +
+      `${env.emailLogoUrl} instead, which most mail clients block by default.`
+  );
+}
 
 // "replace_me" is the literal placeholder shipped in .env.example — treat it as unset so a
 // freshly-copied .env that hasn't been filled in yet still falls back to the console stub
@@ -89,7 +120,22 @@ function htmlToText(html) {
     .trim();
 }
 
+/**
+ * Resolves the `cid:` logo reference for a message about to go out.
+ *
+ * Returns the HTML to send plus the attachment it needs, or no attachment and a rewritten `src`
+ * when the asset could not be read. Templates always write `cid:`; this is the only place that
+ * knows whether the message can actually carry it.
+ */
+function withInlineLogo(html) {
+  const cidRef = `cid:${LOGO_CID}`;
+  if (!html.includes(cidRef)) return { html, inlineLogo: null };
+  if (!logoBase64) return { html: html.split(cidRef).join(env.emailLogoUrl), inlineLogo: null };
+  return { html, inlineLogo: { filename: 'logo.png', contentType: 'image/png', base64: logoBase64 } };
+}
+
 async function sendViaResend({ to, subject, html }) {
+  const { html: body, inlineLogo } = withInlineLogo(html);
   const res = await fetch(RESEND_ENDPOINT, {
     method: 'POST',
     headers: {
@@ -100,8 +146,24 @@ async function sendViaResend({ to, subject, html }) {
       from: env.emailFrom,
       to: [to],
       subject,
-      html,
+      html: body,
+      // Derived from the original HTML — the plain-text alternative has no images either way.
       text: htmlToText(html),
+      // `content_id` is what makes Resend treat this as inline rather than as a file the reader
+      // has to download. Without it the logo arrives as a paperclip attachment and the header
+      // renders empty, which is worse than the linked image it replaced.
+      ...(inlineLogo
+        ? {
+            attachments: [
+              {
+                filename: inlineLogo.filename,
+                content: inlineLogo.base64,
+                content_type: inlineLogo.contentType,
+                content_id: LOGO_CID,
+              },
+            ],
+          }
+        : {}),
     }),
     signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
   });
@@ -116,10 +178,30 @@ async function sendViaResend({ to, subject, html }) {
 }
 
 async function sendViaSmtp({ to, subject, html }) {
+  const { html: body, inlineLogo } = withInlineLogo(html);
   let timer;
   try {
     return await Promise.race([
-      transporter.sendMail({ from: env.emailFrom, to, subject, html, text: htmlToText(html) }),
+      transporter.sendMail({
+        from: env.emailFrom,
+        to,
+        subject,
+        html: body,
+        text: htmlToText(html),
+        // nodemailer spells the same thing `cid`, and infers multipart/related from its presence.
+        ...(inlineLogo
+          ? {
+              attachments: [
+                {
+                  filename: inlineLogo.filename,
+                  content: Buffer.from(inlineLogo.base64, 'base64'),
+                  contentType: inlineLogo.contentType,
+                  cid: LOGO_CID,
+                },
+              ],
+            }
+          : {}),
+      }),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(`timed out after ${SEND_TIMEOUT_MS}ms`)), SEND_TIMEOUT_MS);
       }),

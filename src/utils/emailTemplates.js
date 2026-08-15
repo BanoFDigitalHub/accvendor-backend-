@@ -20,10 +20,21 @@ const BRAND = {
 
 // The storefront, never the admin origin — every button below is pressed by a customer.
 const SITE_URL = env.siteUrl.replace(/\/$/, '');
-// Must be an absolute, publicly reachable https URL: a mail client cannot resolve a local
-// filesystem path or a relative URL, and a broken logo is what every recipient would see.
-// Defaults to the deployed storefront's copy; override with EMAIL_LOGO_URL.
-const LOGO_URL = env.emailLogoUrl || `${SITE_URL}/logo.png`;
+/**
+ * The logo is referenced by **content id, not by URL**.
+ *
+ * A `cid:` reference points at a part of the message itself, so there is nothing for the mail
+ * client to fetch and nothing for it to block. That is the whole reason: the remote URL was
+ * reachable and the markup was right, but Gmail, Outlook and Apple Mail all refuse to load
+ * remote images for a sender the recipient has never replied to — which is every transactional
+ * email a new customer receives — and what they saw in the header was a placeholder icon.
+ *
+ * `email.service.js` owns the asset and attaches it; if it cannot read the file it rewrites this
+ * reference to `env.emailLogoUrl` on the way out, so a missing asset degrades to the linked
+ * image rather than to a dead `cid:`.
+ */
+const LOGO_CID = 'accvendor-logo';
+const LOGO_SRC = `cid:${LOGO_CID}`;
 
 // Email clients strip <style> unpredictably, so every rule is inline. Kept as short helpers
 // rather than repeated literals so a brand tweak is a one-line change.
@@ -31,6 +42,11 @@ const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial
 const MONO = "'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace";
 
 function escapeHtml(str) {
+  // Nullish renders as nothing, not as the word "undefined". Every interpolated value in this
+  // file goes through here, and `String(undefined)` puts a literal "undefined" in a customer's
+  // inbox for any field that turns out to be optional — the kind of thing nobody notices until
+  // it has been sent a few hundred times.
+  if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -110,6 +126,24 @@ function panel(innerHtml, extra = '') {
   </table>`;
 }
 
+/**
+ * Drops the explanatory comments from the markup on the way out — but never the Outlook ones.
+ *
+ * This file is heavily commented *inside* the HTML, because the reasons behind bulletproof
+ * buttons and blocked-image fallbacks are exactly what a future reader needs. Those comments were
+ * being posted to customers: about 2KB, 17% of every message, of notes addressed to whoever next
+ * opens this file. Gmail clips a message over 102KB, so it was never a correctness problem, but
+ * it is bytes in someone's mailbox that say nothing to them.
+ *
+ * The MSO conditionals are load-bearing markup, not prose — `<!--[if mso]>` is what gives Outlook
+ * a real button, and `<!--[if !mso]><!-- -->` is what hides that from everyone else. A comment is
+ * kept if it mentions a conditional at all, which covers the opening block, the downlevel-revealed
+ * pair and the bare `<!--<![endif]-->`.
+ */
+function stripAuthorComments(html) {
+  return html.replace(/<!--[\s\S]*?-->/g, (match) => (/\[if\b|\[endif\]|<!\[/i.test(match) ? match : ''));
+}
+
 function baseTemplate(title, bodyHtml, options = {}) {
   const {
     preheader = '',
@@ -128,7 +162,7 @@ function baseTemplate(title, bodyHtml, options = {}) {
     // the question that turns a transactional email into a spam report.
     reason = 'You are receiving this email because you have an account on accvendor.com.',
   } = options;
-  return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+  return stripAuthorComments(`<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head>
     <meta charset="utf-8" />
@@ -182,7 +216,7 @@ function baseTemplate(title, bodyHtml, options = {}) {
                         <tr>
                           <td align="center" valign="middle" height="46"
                             style="width:46px;height:46px;background:#ffffff;border-radius:12px;line-height:46px;">
-                            <img src="${LOGO_URL}" width="36" height="36" alt=""
+                            <img src="${LOGO_SRC}" width="36" height="36" alt=""
                               style="display:block;margin:0 auto;width:36px;height:36px;border:0;" />
                           </td>
                         </tr>
@@ -265,7 +299,7 @@ function baseTemplate(title, bodyHtml, options = {}) {
       </tr>
     </table>
   </body>
-</html>`;
+</html>`);
 }
 
 function otpEmail(otp, expiresMinutes) {
@@ -715,6 +749,8 @@ function leadConfirmationEmail({ program = "Seller", name }) {
 }
 
 module.exports = {
+  // Shared with email.service.js, which attaches the file this id points at.
+  LOGO_CID,
   baseTemplate,
   otpEmail,
   passwordResetEmail,
