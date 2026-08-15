@@ -372,7 +372,10 @@ async function submitProof(userId, orderId, proofUrl, transactionId) {
   if (!['pending_payment', 'proof_submitted'].includes(order.status)) {
     throw new ApiError(400, `Cannot submit payment proof for an order in "${order.status}" status`);
   }
-  if (proofUrl) order.paymentProofUrl = proofUrl;
+  // The screenshot is required by the validator, so it always overwrites — resubmitting is how a
+  // buyer corrects a wrong or unreadable one. The transaction ID is optional and is only written
+  // when given, so a resubmission of just the image does not blank a reference already on file.
+  order.paymentProofUrl = proofUrl;
   if (transactionId) order.paymentTransactionId = transactionId;
   order.status = 'proof_submitted';
   // Payment has been reported: the unpaid clock no longer applies and the sweep must skip it.

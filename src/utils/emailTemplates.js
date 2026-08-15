@@ -116,8 +116,13 @@ function baseTemplate(title, bodyHtml, options = {}) {
     footerNote = '',
     badge = '',
     // One line under the title saying what this email is about, so the reader knows within a
-    // second whether it needs them. Kept to the point deliberately — a paragraph here is read
-    // as boilerplate and skipped, which defeats the purpose.
+    // second whether it needs them.
+    //
+    // **It is the only place that line is allowed to appear.** Every template used to state its
+    // purpose here and then restate it as the opening paragraph of the body — the reader met the
+    // same sentence twice before reaching the code, the summary or the button they came for, and
+    // a message that repeats itself reads as generated. The context says what happened; the body
+    // starts at the thing itself.
     context = '',
     // Why this landed in their inbox. Every email says it, because "why am I getting this?" is
     // the question that turns a transactional email into a spam report.
@@ -158,8 +163,16 @@ function baseTemplate(title, bodyHtml, options = {}) {
                  anchor, so a blocked image rendered as a blue underlined "accvendor.com" —
                  a stray link sitting where the logo should be, which is exactly how it looked
                  in a real inbox. The image is now decorative (alt=""), so blocking it leaves
-                 nothing behind, and the mark beside it is drawn with a table cell and a letter:
-                 no image to block, no font to miss, correct in every client. -->
+                 nothing behind, and the wordmark beside it is live text: no image to block,
+                 no font to miss, correct in every client.
+
+                 **The tile is white, and the artwork is inset in it.** It used to be the accent
+                 blue with the logo stretched to the full 46px. logo.png is a transparent mark
+                 drawn in navy *and* the same accent blue, so on an accent tile half of it
+                 vanished into the background and the rest lost its edges — which is what read
+                 as a blurry logo. White is the ground the mark was drawn for. The inset (36px
+                 of art in a 46px tile) stops the shape touching the rounded corners, and the
+                 source is 512px so it is still ~14x the rendered density on any display. -->
             <tr>
               <td style="padding:26px 32px;background:${BRAND.navy};">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
@@ -168,9 +181,9 @@ function baseTemplate(title, bodyHtml, options = {}) {
                       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="46" style="width:46px;">
                         <tr>
                           <td align="center" valign="middle" height="46"
-                            style="width:46px;height:46px;background:${BRAND.accent};border-radius:12px;color:#ffffff;font-family:${FONT};font-size:19px;font-weight:700;letter-spacing:0.5px;line-height:46px;">
-                            <img src="${LOGO_URL}" width="46" height="46" alt=""
-                              style="display:block;width:46px;height:46px;border:0;border-radius:12px;" />
+                            style="width:46px;height:46px;background:#ffffff;border-radius:12px;line-height:46px;">
+                            <img src="${LOGO_URL}" width="36" height="36" alt=""
+                              style="display:block;margin:0 auto;width:36px;height:36px;border:0;" />
                           </td>
                         </tr>
                       </table>
@@ -268,7 +281,6 @@ function otpEmail(otp, expiresMinutes) {
     .join('');
 
   const body = `
-    ${p('Welcome to Accvendor. Enter the code below to verify your email and finish creating your account.')}
     ${panel(
       `<table role="presentation" cellpadding="0" cellspacing="6" border="0" align="center" style="margin:0 auto;border-collapse:separate;"><tr>${digits}</tr></table>
        <p style="margin:16px 0 0;color:${BRAND.faint};font-size:13px;text-align:center;">Expires in ${expiresMinutes} minutes</p>`,
@@ -287,8 +299,8 @@ function otpEmail(otp, expiresMinutes) {
 
 function passwordResetEmail(link, expiresMinutes) {
   const body = `
-    ${p(`We received a request to reset your Accvendor password. Tap the button below to choose a new one — the link works for the next ${strong(`${expiresMinutes} minutes`)}.`)}
     ${button(link, 'Reset my password')}
+    ${p(`The link works once, and expires in ${strong(`${expiresMinutes} minutes`)}.`, `text-align:center;font-size:13px;`)}
     ${p(
       `If the button doesn't work, paste this link into your browser:<br /><a href="${link}" style="color:${BRAND.accent};word-break:break-all;">${link}</a>`,
       `font-size:13px;`
@@ -297,7 +309,7 @@ function passwordResetEmail(link, expiresMinutes) {
   return baseTemplate('Reset your password', body, {
     preheader: 'Reset your Accvendor password',
     badge: pill('Security', 'warn'),
-    context: 'Use the button below to choose a new password. The link works once.',
+    context: 'Someone asked to reset the password on this account. If it was you, set a new one below.',
     reason: 'You are receiving this because a password reset was requested for this email address.',
     footerNote: "Didn't request this? Ignore this email — your password stays unchanged.",
   });
@@ -336,7 +348,6 @@ function orderSummary(order) {
 
 function orderCreatedEmail(order) {
   const body = `
-    ${p('Thanks for your order! Here’s what you bought:')}
     ${orderSummary(order)}
     ${panel(
       `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.6;">
@@ -349,41 +360,40 @@ function orderCreatedEmail(order) {
   return baseTemplate('Order received', body, {
     preheader: `Order ${orderRef(order)} — ${formatPrice(order.total, order.currency)}. Payment proof needed.`,
     badge: pill('Awaiting payment', 'warn'),
-    context: `Order ${orderRef(order)} is reserved for you. Send the payment and upload the proof to complete it.`,
+    context: `We are holding order ${orderRef(order)} for you. Pay, then upload the receipt so we can release it.`,
     reason: `You are receiving this because you placed order ${orderRef(order)} on accvendor.com.`,
   });
 }
 
 function proofSubmittedEmail(order) {
   const body = `
-    ${p(`We've received your payment proof for order ${strong(`${orderRef(order)}`)} and our team is reviewing it now.`)}
-    ${p("Reviews are usually done within a few hours. We'll email you the moment it's approved.")}
+    ${p(`Most payments are checked within a few hours. We will email you the moment order ${strong(`${orderRef(order)}`)} is approved — there is nothing for you to do until then.`)}
+    ${loginButton('View your order')}
   `;
   return baseTemplate('Payment proof received', body, {
     preheader: `We're reviewing your payment for order ${orderRef(order)}`,
     badge: pill('Under review', 'warn'),
-    context: 'Our team is checking your payment. You will hear from us as soon as it is verified.',
+    context: 'We have your receipt and are checking it against our account.',
     reason: `You are receiving this because you uploaded payment proof for order ${orderRef(order)}.`,
   });
 }
 
 function orderApprovedEmail(order) {
   const body = `
-    ${p(`Good news — your payment for order ${strong(`${orderRef(order)}`)} has been approved.`)}
-    ${p("We're preparing your account details now and will send them over shortly.")}
+    ${p(`We are preparing the account details for order ${strong(`${orderRef(order)}`)} now, and will email them as soon as they are ready.`)}
     ${loginButton('View your order')}
   `;
   return baseTemplate('Payment approved', body, {
     preheader: `Payment approved for order ${orderRef(order)}`,
     badge: pill('Approved', 'good'),
-    context: 'Your payment cleared. We are preparing your order for delivery now.',
+    context: 'Your payment checked out. Your order is being prepared.',
     reason: `You are receiving this because of an update to your order ${orderRef(order)}.`,
   });
 }
 
 function orderRejectedEmail(order) {
   const body = `
-    ${p(`Unfortunately we couldn't verify the payment proof for order ${strong(`${orderRef(order)}`)}.`)}
+    ${p(`We could not match the receipt on order ${strong(`${orderRef(order)}`)} to a payment we received. Nothing has been taken from you.`)}
     ${
       order.rejectionReason
         ? panel(
@@ -391,13 +401,13 @@ function orderRejectedEmail(order) {
           )
         : ''
     }
-    ${p('You can open a support ticket if you think this was a mistake, or place a new order to try again.')}
+    ${p('If you think this is wrong, send us the receipt on a ticket and we will look again.')}
     ${button(`${SITE_URL}/dashboard/tickets/new`, 'Contact support')}
   `;
   return baseTemplate('Payment could not be verified', body, {
     preheader: `Action needed on order ${orderRef(order)}`,
     badge: pill('Not verified', 'bad'),
-    context: 'We could not match your payment. Nothing has been charged - see below for what to do next.',
+    context: 'We could not find your payment. Nothing has been charged.',
     reason: `You are receiving this because of an update to your order ${orderRef(order)}.`,
   });
 }
@@ -418,16 +428,15 @@ function orderDeliveredEmail(order, downloadUrl) {
     : loginButton('View in your dashboard');
 
   const body = `
-    ${p(`Your order ${strong(`${orderRef(order)}`)} is ready. Everything you need is below.`)}
     ${credentialBlock}
     ${downloadBlock}
     ${order.expiresAt ? p(`Your subscription is active until ${strong(formatDate(order.expiresAt))}.`) : ''}
-    ${p('These details are always available in your Accvendor dashboard.', `font-size:13px;`)}
+    ${p('A copy stays in your dashboard, so you will not lose these.', `font-size:13px;`)}
   `;
   return baseTemplate('Your order is ready', body, {
     preheader: `Order ${orderRef(order)} delivered — your account details are inside`,
     badge: pill('Delivered', 'good'),
-    context: 'Your account details are below and are always available in your dashboard.',
+    context: 'Your account details are below, and stay in your dashboard.',
     reason: `You are receiving this because your order ${orderRef(order)} has been delivered.`,
   });
 }
@@ -437,7 +446,7 @@ function cancelRequestRejectedEmail(order) {
   // pre-migration order (or an already-serialized one) renders the same.
   const rejectionReason = order.cancelRequest?.rejectionReason || order.cancelRejectionReason;
   const body = `
-    ${p(`We reviewed your cancellation request for order ${strong(`${orderRef(order)}`)} and weren't able to approve it — your subscription remains active.`)}
+    ${p(`Order ${strong(`${orderRef(order)}`)} stays active.`)}
     ${
       rejectionReason
         ? panel(
@@ -445,41 +454,39 @@ function cancelRequestRejectedEmail(order) {
           )
         : ''
     }
-    ${p('If you have questions, open a support ticket and we’ll take another look.')}
+    ${p('If that does not sound right, open a ticket and we will take another look.')}
     ${button(`${SITE_URL}/dashboard/tickets/new`, 'Open a ticket')}
   `;
   return baseTemplate('Cancellation request declined', body, {
     preheader: `Update on your cancellation request for order ${orderRef(order)}`,
     badge: pill('Declined', 'bad'),
-    context: 'We reviewed your cancellation request and could not approve it. The reason is below.',
+    context: 'We looked at your cancellation request and could not approve it.',
     reason: `You are receiving this because you requested a cancellation for order ${orderRef(order)}.`,
   });
 }
 
 function orderExpiredEmail(order) {
   const body = `
-    ${p(`Your subscription from order ${strong(`${orderRef(order)}`)} has expired and access has now ended.`)}
-    ${p('Renew any time to pick up right where you left off.')}
-    ${button(`${SITE_URL}/products`, 'Renew now')}
+    ${p(`Access from order ${strong(`${orderRef(order)}`)} has ended. Ordering it again takes a minute.`)}
+    ${button(`${SITE_URL}/products`, 'Order again')}
   `;
   return baseTemplate('Subscription expired', body, {
     preheader: `Order ${orderRef(order)} has expired`,
     badge: pill('Expired', 'bad'),
-    context: 'The validity period on this subscription has ended. You can reorder it any time.',
+    context: 'This subscription has reached the end of its term.',
     reason: `You are receiving this because your order ${orderRef(order)} has reached the end of its validity.`,
   });
 }
 
 function expiryReminderEmail(order, daysLeft) {
   const body = `
-    ${p(`Your subscription from order ${strong(`${orderRef(order)}`)} expires in ${strong(`${daysLeft} day${daysLeft === 1 ? '' : 's'}`)} — on ${formatDate(order.expiresAt)}.`)}
-    ${p('Renew before then to avoid any interruption to your access.')}
+    ${p(`Order ${strong(`${orderRef(order)}`)} runs out on ${strong(formatDate(order.expiresAt))}. Renew before then and your access carries straight on.`)}
     ${button(`${SITE_URL}/products`, 'Renew now')}
   `;
   return baseTemplate('Your subscription is expiring soon', body, {
     preheader: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left on order ${orderRef(order)}`,
     badge: pill(`${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, 'warn'),
-    context: 'Renew before it lapses to keep the same access without a gap.',
+    context: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left on this subscription.`,
     reason: `You are receiving this because your order ${orderRef(order)} is close to expiring.`,
   });
 }

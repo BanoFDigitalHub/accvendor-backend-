@@ -20,17 +20,18 @@ const createOrderSchema = z.object({
   buyNow: buyNowSchema.optional(),
 });
 
-// Screenshot and transaction ID are independent — at least one is required, both can be
-// sent together. A buyer whose upload fails (or who only has a reference number) must still
-// be able to report their payment.
-const submitProofSchema = z
-  .object({
-    proofUrl: z.string().trim().url().max(2000).optional(),
-    transactionId: z.string().trim().min(1).max(100).optional(),
-  })
-  .refine((body) => body.proofUrl || body.transactionId, {
-    message: 'Provide a payment screenshot, a transaction ID, or both',
-  });
+// **The screenshot is required.** It used to be one-of — screenshot *or* transaction ID — on the
+// reasoning that a buyer whose upload failed should still be able to report their payment. In
+// practice a bare reference number is not something the admin can verify: it is a string the
+// buyer typed, it matches nothing until it is found in a bank statement, and an order sitting in
+// `proof_submitted` with nothing to look at is worse than one still waiting for proof, because it
+// leaves the queue looking actionable when it is not. The screenshot is the evidence; the
+// transaction ID stays optional alongside it, because it is what makes the screenshot quick to
+// reconcile.
+const submitProofSchema = z.object({
+  proofUrl: z.string().trim().url().max(2000, 'Payment screenshot URL is too long'),
+  transactionId: z.string().trim().min(1).max(100).optional(),
+});
 
 // Accepts either a Mongo id or a human order number (AV-7K4P2M), so a customer can paste the
 // reference from their email straight into the URL.
