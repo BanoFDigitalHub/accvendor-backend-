@@ -126,6 +126,36 @@ async function throws(fn) {
   const bothWays = await auth.login({ email: 'g@x.com', password: 'Str0ng!Pass1' }, {});
   ok(Boolean(bothWays?.tokens?.accessToken), 'and can then sign in with it as well as with Google');
 
+  console.log('\n  Block / unblock notifies the customer');
+
+  const { Notification } = require('../src/models/Notification');
+  const users = require('../src/services/admin/user.service');
+
+  const target = await User.create({
+    email: 'blockme@x.com', name: 'Target', passwordHash: 'x',
+    securityQuestion: 'q', securityAnswerHash: 'x', isVerified: true,
+  });
+
+  await users.setBlocked(target._id, true, 'Chargeback on AV-1234');
+  const blockNotes = await Notification.find({ user: target._id, event: 'account:blockChanged' }).lean();
+  ok(blockNotes.length === 1, 'blocking notifies the customer');
+  ok(blockNotes[0].title.includes('blocked'), 'the notification says they were blocked');
+  ok(blockNotes[0].body.includes('Chargeback'), 'and carries the reason the admin recorded');
+
+  // Re-blocking an already-blocked account is a no-op a double-click produces; it must not
+  // send a second "you have been blocked".
+  await users.setBlocked(target._id, true, 'Chargeback on AV-1234');
+  ok(
+    (await Notification.countDocuments({ user: target._id, event: 'account:blockChanged' })) === 1,
+    'blocking an already-blocked account sends nothing'
+  );
+
+  await users.setBlocked(target._id, false);
+  const all = await Notification.find({ user: target._id, event: 'account:blockChanged' }).sort({ createdAt: 1 }).lean();
+  ok(all.length === 2, 'unblocking notifies them too');
+  ok(all[1].title.includes('restored'), 'and says the account is back');
+  ok((await User.findById(target._id)).blockReason === null, 'unblocking clears the reason');
+
   console.log(`\n${fail === 0 ? 'all good' : `${fail} failed`}`);
   await mongoose.disconnect();
   await mem.stop();

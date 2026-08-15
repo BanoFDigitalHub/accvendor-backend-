@@ -545,14 +545,63 @@ function unpaidOrderExpiredEmail(order) {
 
 function orderCancelledEmail(order) {
   const body = `
-    ${p(`Your cancellation request for order ${strong(orderRef(order))} has been approved and the order is now cancelled.`)}
     ${orderSummary(order)}
-    ${p('If you were expecting a refund, our support team will follow up separately with the details.')}
+    ${p('If a refund is due, support will follow up with the details separately — you do not need to chase it.')}
     ${loginButton('View your orders')}
   `;
+  // The only email in this file that had no `context` and no `reason`, so it arrived without
+  // the one line saying what happened and without the line saying why it reached them.
   return baseTemplate('Order cancelled', body, {
     preheader: `${orderRef(order)} has been cancelled`,
     badge: pill('Cancelled', 'bad'),
+    context: `We approved your cancellation request. Order ${orderRef(order)} is now cancelled.`,
+    reason: `You are receiving this because you requested a cancellation for order ${orderRef(order)}.`,
+  });
+}
+
+/**
+ * Account blocked / unblocked.
+ *
+ * Blocking revokes the account's tokens instantly (`tokenVersion`), so the person is signed
+ * out mid-session with no explanation anywhere — the storefront simply stops letting them in.
+ * Without this email the first they know of it is a login that refuses them, and the appeal
+ * route is something they have to discover. Both messages therefore say plainly what happened,
+ * why where a reason was recorded, and what to do next.
+ *
+ * The reason is admin-entered free text, so it goes through `escapeHtml` like every other
+ * interpolated value here.
+ */
+function accountBlockedEmail(user) {
+  const body = `
+    ${
+      user.blockReason
+        ? panel(
+            `<p style="margin:0;color:${BRAND.ink};font-size:14px;line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(user.blockReason)}</p>`
+          )
+        : p('No specific reason was recorded. Ask us and we will explain.')
+    }
+    ${p('Nothing has been deleted. Your order history and any credentials already delivered to you are untouched, and come back with the account if the block is lifted.')}
+    ${p('If you think this is a mistake, go to the site and try to sign in: the screen that refuses you carries a form that sends your appeal straight to us.')}
+    ${button(SITE_URL, 'Appeal this decision')}
+  `;
+  return baseTemplate('Your account has been blocked', body, {
+    preheader: 'Your accvendor.com account has been blocked',
+    badge: pill('Blocked', 'bad'),
+    context: 'You have been signed out and cannot place orders until this is lifted.',
+    reason: 'You are receiving this because it concerns the account registered to this email address.',
+  });
+}
+
+function accountUnblockedEmail() {
+  const body = `
+    ${p('Everything is where you left it — your orders, your credentials and your support threads were never removed.')}
+    ${loginButton('Sign in')}
+  `;
+  return baseTemplate('Your account has been restored', body, {
+    preheader: 'Your accvendor.com account has been unblocked',
+    badge: pill('Restored', 'good'),
+    context: 'The block on your account has been lifted. You can sign in again.',
+    reason: 'You are receiving this because it concerns the account registered to this email address.',
   });
 }
 
@@ -680,6 +729,8 @@ module.exports = {
   paymentReminderEmail,
   unpaidOrderExpiredEmail,
   orderCancelledEmail,
+  accountBlockedEmail,
+  accountUnblockedEmail,
   ticketAutoClosedEmail,
   adminMessageEmail,
   leadEmail,
