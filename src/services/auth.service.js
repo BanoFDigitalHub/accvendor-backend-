@@ -8,7 +8,7 @@ const { env } = require('../config/env');
 const { generateOtp, generateResetToken } = require('../utils/otp.util');
 const { sendMail } = require('./email.service');
 const { verifyIdToken: verifyGoogleIdToken } = require('./google.service');
-const { otpEmail, passwordResetEmail } = require('../utils/emailTemplates');
+const { otpEmail, passwordResetEmail, newSignInEmail } = require('../utils/emailTemplates');
 const {
   signAccessToken,
   signRefreshToken,
@@ -282,6 +282,32 @@ async function issueTokens(user, { userAgent, ip } = {}, scope = SCOPE_SITE) {
   return { accessToken, refreshToken };
 }
 
+/**
+ * Tells the account owner that somebody just signed in.
+ *
+ * **Deliberately not awaited.** A sign-in must not wait on an SMTP round trip, and it must not
+ * fail because a mailbox is down — the person is already authenticated by the time this runs, and
+ * the worst outcome of a failed send is a missing notification, not a failed login. `sendMail`
+ * already degrades to the console stub and is timeout-capped, so this only catches the case where
+ * it throws synchronously.
+ *
+ * Only site sessions get one. The admin panel is a single operator who is also the person reading
+ * the mailbox, so alerting them about their own logins several times a day is how a security
+ * notice becomes something you filter — and a notice that is filtered is not a notice.
+ */
+function notifyNewSignIn(user, meta = {}, method = 'Password') {
+  if (!user?.email) return;
+  Promise.resolve()
+    .then(() =>
+      sendMail({
+        to: user.email,
+        subject: 'Accvendor — new sign-in to your account',
+        html: newSignInEmail({ method, ip: meta.ip || '', userAgent: meta.userAgent || '', at: new Date() }),
+      })
+    )
+    .catch((err) => console.warn('[auth] sign-in notification failed:', err.message));
+}
+
 async function login({ email, password }, meta, scope = SCOPE_SITE) {
   const user = await User.findOne({ email });
   if (!user) throw new ApiError(401, 'Invalid email or password');
@@ -333,6 +359,7 @@ async function login({ email, password }, meta, scope = SCOPE_SITE) {
   }
 
   const tokens = await issueTokens(user, meta, scope);
+  if (scope === SCOPE_SITE) notifyNewSignIn(user, meta, 'Password');
   return { user, tokens };
 }
 
@@ -400,11 +427,18 @@ async function loginWithGoogle({ credential }, meta, scope = SCOPE_SITE) {
 
   // Signing in successfully clears a password lockout, exactly as a correct password does —
   // proving you own the Google account is at least as strong as knowing the password.
+  // Whether this request created the row, captured before `save()` clears the flag. A brand-new
+  // account does not get a "new sign-in" alert: the person is looking at the screen that just
+  // made it, and telling them their two-second-old account was accessed is noise in the one inbox
+  // where this message needs to keep meaning something.
+  const isNewAccount = user.isNew;
+
   user.failedLoginAttempts = 0;
   user.lockUntil = null;
   await user.save();
 
   const tokens = await issueTokens(user, meta, scope);
+  if (!isNewAccount) notifyNewSignIn(user, meta, 'Google');
   return { user, tokens };
 }
 

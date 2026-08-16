@@ -17,6 +17,16 @@ function toPublicAd(ad) {
     description: ad.description,
     ctaLabel: ad.ctaLabel,
     imageUrl: optimizedUrl(ad.imageUrl, { width: 1200 }),
+    // The untransformed original, shipped alongside so the slot has somewhere to fall back to.
+    // `imageUrl` above is a *derived* Cloudinary asset (f_auto,q_auto,c_limit,w_1200), and a
+    // derived asset is not permanent: Cloudinary regenerates it on demand and prunes it to
+    // reclaim storage, and an account with "strict transformations" enabled refuses to
+    // regenerate an unsigned one at all. Both failure modes look identical from here — the ad
+    // renders for a day off the CDN edge and then the image is simply gone, while the original
+    // upload is still sitting in the media library untouched. Only sent when it differs, so an
+    // ad whose creative is a pasted third-party URL adds nothing to the payload.
+    imageFallbackUrl:
+      ad.imageUrl && optimizedUrl(ad.imageUrl, { width: 1200 }) !== ad.imageUrl ? ad.imageUrl : undefined,
     linkUrl: ad.linkUrl,
     code: ad.code,
     popup: ad.type === 'popup' ? ad.popup : undefined,

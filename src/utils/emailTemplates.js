@@ -627,6 +627,52 @@ function accountUnblockedEmail() {
   });
 }
 
+/**
+ * "A new sign-in to your account."
+ *
+ * This is a **security notice, not a greeting** — which decides everything about it. It is not
+ * here to welcome anyone back; it is here so that a sign-in the account owner did not perform
+ * reaches them within seconds, while the session is still young enough to be worth killing. So
+ * the body is the evidence — when, how, from where, on what — and then the one instruction that
+ * matters if the answer is "that wasn't me".
+ *
+ * Two consequences of that framing:
+ *
+ *  - **The time is stated in UTC.** The server's locale is not the reader's, and a bare "2:14 AM"
+ *    that could be either of two zones is worse than useless in the one message where the reader
+ *    is trying to decide whether a timestamp matches something they did.
+ *  - **The `method` is spelled out.** "Password" versus "Google" is often the whole tell: someone
+ *    who only ever uses the Google button and receives a password sign-in alert knows immediately,
+ *    and someone with no password on their account knows a password sign-in is impossible.
+ *
+ * The user agent is shown raw (escaped, truncated). Parsing it into "Chrome on Windows" is
+ * friendlier and strictly less useful here — the reader is comparing it against their own
+ * devices, and the details a parser throws away are the ones that distinguish two of them.
+ */
+function newSignInEmail({ method = 'Password', ip = '', userAgent = '', at = new Date() } = {}) {
+  const when = new Date(at).toISOString().replace('T', ' ').slice(0, 16);
+  const row = (label, value) =>
+    `<p style="margin:0 0 8px;color:${BRAND.muted};font-size:14px;line-height:1.6;">${label}: ${strong(escapeHtml(value))}</p>`;
+
+  const body = `
+    ${panel(
+      `${row('When', `${when} UTC`)}${row('Method', method)}${ip ? row('IP address', ip) : ''}${
+        userAgent ? row('Device', userAgent.slice(0, 160)) : ''
+      }`
+    )}
+    ${p('If this was you, there is nothing to do — you can ignore this message.')}
+    ${p(`If it was not, ${strong('change your password now')}. That signs out every device on the account, including whoever just got in.`)}
+    ${loginButton('Change my password', '/dashboard/settings')}
+  `;
+
+  return baseTemplate('New sign-in to your account', body, {
+    preheader: `New sign-in to your accvendor.com account — ${when} UTC`,
+    badge: pill('Security'),
+    context: 'Someone just signed in to your account. If it was you, no action is needed.',
+    reason: 'You are receiving this because it concerns the security of the account registered to this email address.',
+  });
+}
+
 function ticketAutoClosedEmail(ticket, hours) {
   const body = `
     ${p(`Your support ticket ${strong(escapeHtml(ticket.subject))} was closed automatically because we didn't hear back from you for ${hours} hours after our last reply.`)}
@@ -755,6 +801,7 @@ module.exports = {
   orderCancelledEmail,
   accountBlockedEmail,
   accountUnblockedEmail,
+  newSignInEmail,
   ticketAutoClosedEmail,
   adminMessageEmail,
   leadEmail,

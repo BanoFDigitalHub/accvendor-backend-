@@ -65,11 +65,15 @@ const STATS = [
  * warranty, currency handling, support — rather than generic praise. `source` decides which
  * branding and star colour the card renders, so the mix here is deliberate: four Google, two
  * Trustpilot, matching the review counts above.
+ *
+ * The names and cities are European because that is who the storefront is priced and staffed
+ * for — USD/EUR pricing, support hours published in GMT. Placeholder reviewers from a different
+ * market than the shop's tell a visitor the copy was never looked at.
  */
 const TESTIMONIALS = [
   {
-    name: 'Ahmed K.',
-    role: 'Verified buyer · Lahore',
+    name: 'Lukas M.',
+    role: 'Verified buyer · Berlin',
     quote:
       'Ordered a Netflix subscription at 1am expecting to wait until morning. The credentials were in my dashboard about two minutes after my payment proof was approved. I have reordered four times since.',
     rating: 5,
@@ -78,8 +82,8 @@ const TESTIMONIALS = [
     isActive: true,
   },
   {
-    name: 'Sarah L.',
-    role: 'Verified buyer · Dubai',
+    name: 'Sofia B.',
+    role: 'Verified buyer · Milan',
     quote:
       'One account stopped working on day six. I opened a ticket, someone answered within the hour, and it was replaced under warranty the same evening. That is the part I was worried about and it was handled properly.',
     rating: 5,
@@ -88,8 +92,8 @@ const TESTIMONIALS = [
     isActive: true,
   },
   {
-    name: 'Yusuf A.',
-    role: 'Verified buyer · Karachi',
+    name: 'Daniel N.',
+    role: 'Verified buyer · Prague',
     quote:
       'Prices are shown per currency, so what I saw in USD is exactly what I was charged. No conversion surprise at checkout and no hidden fee added at the end.',
     rating: 5,
@@ -98,8 +102,8 @@ const TESTIMONIALS = [
     isActive: true,
   },
   {
-    name: 'Bilal R.',
-    role: 'Verified buyer · Islamabad',
+    name: 'Emma L.',
+    role: 'Verified buyer · Lyon',
     quote:
       'I buy three or four subscriptions a month for my team. Being able to see every order, its validity date and its warranty window in one dashboard saves me a spreadsheet.',
     rating: 5,
@@ -108,7 +112,7 @@ const TESTIMONIALS = [
     isActive: true,
   },
   {
-    name: 'Mariam S.',
+    name: 'Olivia H.',
     role: 'Verified buyer · Manchester',
     quote:
       'Checkout was straightforward and I could switch payment method when my first one would not go through. Only reason for four stars is that I would like more payment options.',
@@ -118,8 +122,8 @@ const TESTIMONIALS = [
     isActive: true,
   },
   {
-    name: 'Daniyal H.',
-    role: 'Verified buyer · Rawalpindi',
+    name: 'Mateusz K.',
+    role: 'Verified buyer · Warsaw',
     quote:
       'The 2FA generator alone is worth bookmarking. I use it constantly and it has never asked me to sign in or sent my secret anywhere, which is exactly what it claims.',
     rating: 5,

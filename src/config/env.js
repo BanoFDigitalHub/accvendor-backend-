@@ -178,6 +178,18 @@ const env = {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
     apiKey: process.env.CLOUDINARY_API_KEY,
     apiSecret: process.env.CLOUDINARY_API_SECRET,
+    // **Off by default: an ad edit never destroys a Cloudinary asset.** A creative that vanishes
+    // silently is far more expensive than a few megabytes of unused upload — a blank ad slot is
+    // indistinguishable from a broken site, and nobody finds out until a customer says so. This
+    // repository has already destroyed a live creative once, and Cloudinary keeps serving a
+    // destroyed asset from its CDN edge for a while, so the ad rendered fine all afternoon and
+    // was blank the next morning with nothing connecting the two.
+    //
+    // Set ADS_DELETE_UNUSED_CREATIVES=true to get the housekeeping back: replaced and removed ad
+    // images are then destroyed, still only when no other ad references them. Product images are
+    // unaffected either way — those are cleaned up by `catalog.service.js`, which has its own
+    // orphan tracking.
+    deleteUnusedAdCreatives: String(process.env.ADS_DELETE_UNUSED_CREATIVES || '').toLowerCase() === 'true',
   },
 
   credentialUrlSecret: process.env.CREDENTIAL_URL_SECRET || 'dev_credential_secret_change_me',
