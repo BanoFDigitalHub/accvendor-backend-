@@ -14,6 +14,7 @@ const { connectDB, disconnectDB } = require('../config/db');
 const Product = require('../models/Product');
 const { Order } = require('../models/Order');
 const { Review } = require('../models/Review');
+const { Ad } = require('../models/Ad');
 const Settings = require('../models/Settings');
 const User = require('../models/User');
 const { generateOrderNumber } = require('../utils/orderNumber');
@@ -158,6 +159,24 @@ async function migrateSettings() {
  * page that could have rendered it was gone with the product. `deleteProduct` now takes them
  * with it; this clears the ones already stranded.
  */
+/**
+ * Keeps every existing ad showing exactly where it showed before the 2FA page split.
+ *
+ * `tools` used to mean both `/tools/2fa` and `/2fa/share`; it now means only the generator, and
+ * the share pages are their own group. An ad already targeting `tools` was therefore chosen when
+ * that word covered both, so it gets both — narrowing somebody's live targeting as a side effect
+ * of a schema change is exactly the kind of silent behaviour shift nobody connects to a deploy.
+ *
+ * Idempotent: `$addToSet` on rows that do not already carry the new key.
+ */
+async function migrateAdPages() {
+  const { modifiedCount } = await Ad.updateMany(
+    { pages: 'tools', $nor: [{ pages: '2fa-share' }] },
+    { $addToSet: { pages: '2fa-share' } }
+  );
+  return modifiedCount || 0;
+}
+
 async function migrateOrphanReviews() {
   const productIds = await Product.find({}).distinct('_id');
   const { deletedCount } = await Review.deleteMany({ product: { $nin: productIds } });
@@ -184,6 +203,9 @@ async function run() {
 
   const orphanReviews = await migrateOrphanReviews();
   console.log(`[migrate] reviews: ${orphanReviews} orphaned (product deleted) removed`);
+
+  const adPages = await migrateAdPages();
+  console.log(`[migrate] ads: ${adPages} kept on the 2FA share pages after the page-group split`);
 
   // Build the new indexes (including the unique one on orderNumber) now that every document
   // satisfies them. syncIndexes also drops indexes the schemas no longer declare.

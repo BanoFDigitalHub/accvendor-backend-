@@ -27,7 +27,12 @@ const AD_FREQUENCIES = ['always', 'session', 'daily', 'once'];
 // are groups rather than raw paths so a new route doesn't silently fall outside every rule:
 // `client/src/site/lib/adPage.js` maps a pathname onto exactly one of them.
 // 'all' is the default and short-circuits the rest.
-const AD_PAGES = ['all', 'home', 'products', 'product', 'dashboard', 'tools', 'info'];
+// `tools` and `2fa-share` are deliberately separate even though both are "the 2FA pages". The
+// generator is a public utility somebody arrived at on purpose and stays on — good ad inventory.
+// A share link is somebody reading an account's 2FA secret off a password-grade page they were
+// sent; whether that is a place to sell anything is a call the operator should get to make, and
+// they cannot make it while one checkbox controls both.
+const AD_PAGES = ['all', 'home', 'products', 'product', 'dashboard', 'tools', '2fa-share', 'info'];
 
 const popupSchema = new mongoose.Schema(
   {
